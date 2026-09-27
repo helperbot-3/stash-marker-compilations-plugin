@@ -51,7 +51,22 @@
     const value=Number(match[1]||0)*3600+Number(match[2])*60+Number(match[3]);
     return Number.isFinite(value)&&value<=Number.MAX_SAFE_INTEGER?value:null;
   }
-  const api={presets,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime};
+  const clipboardType='stash-marker-compilation-clip';
+  function copyClip(clip) {
+    return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p}))};
+  }
+  function encodeClip(clip){return JSON.stringify({type:clipboardType,version:1,clip:copyClip(clip)});}
+  function decodeClip(text){
+    try {
+      if(text.length>20000)return null;
+      const data=JSON.parse(text), c=data.clip;
+      if(data.type!==clipboardType||data.version!==1||!c||!/^\d+$/.test(c.scene_id)||typeof c.title!=='string'||c.title.length>300)return null;
+      if(!Number.isFinite(c.start)||!Number.isFinite(c.end)||c.start<0||c.end<=c.start)return null;
+      if(!Array.isArray(c.phases)||!c.phases.length||c.phases.length>10||c.phases.some(p=>!p||!Number.isInteger(p.repeat)||p.repeat<1||p.repeat>20||![.25,.5,.75,1,1.25,1.5,2,3].includes(p.speed)))return null;
+      return copyClip(c);
+    }catch{return null;}
+  }
+  const api={presets,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

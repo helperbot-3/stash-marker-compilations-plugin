@@ -50,7 +50,11 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    displayed frames depend on the source frame rate.
 4. The right column edits the ordered repetition/speed phases. Drag timeline clips
    to reorder, use the Inspector arrows, or press **Alt + Left / Right** on a clip.
-   Use **Zoom / Fit** for long timelines.
+   Use **Zoom / Fit** for long timelines. **Cmd+C/X/V** (or Ctrl on Windows/Linux)
+   copies/cuts/pastes the selected clip, including its trim and repeat/speed pattern.
+   Paste inserts after the selection, or at the end of an empty/unselected timeline.
+   **Delete / Backspace** removes the selected clip. Clipboard shortcuts also work
+   between compilation editors; ordinary text editing and other pasted text are untouched.
 5. **Space** plays or pauses the compilation timeline in both views. It leaves text
    fields, dropdowns, and dialogs alone. Starting timeline playback pauses the source
    trim preview, and starting the source preview stops timeline playback.

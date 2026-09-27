@@ -153,7 +153,7 @@
             h('span',{className:'mc-clip-number'},String(entry.index+1).padStart(2,'0')),h('strong',null,c.title),h('small',null,time(entry.duration)),
             h('span',{className:'mc-phase-strip'},patterns.phases(c).map((p,n)=>h('i',{key:n,className:p.speed<1?'is-slow':'',style:{flex:p.repeat/p.speed},title:p.repeat+' × '+p.speed+' speed'}))));})),
         total>0&&h('div',{className:'mc-playhead',style:{left:Math.min(current,total)*scale},'aria-hidden':true},h('span',null)))),
-      h('div',{className:'mc-timeline-footer'},h('span',null,'Drag to reorder · Double-click to play · Alt + ← / → to move a focused clip'),
+      h('div',{className:'mc-timeline-footer'},h('span',null,'Drag to reorder · Double-click to play · ⌘/Ctrl C, X, V · Delete'),
         h('label',{className:'mc-scrub'},'Position',h('input',{'aria-label':'Compilation position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>onSeek(Number(e.target.value))})),h('output',null,time(current)+' / '+time(total))));
   }
 
@@ -312,6 +312,30 @@
       setSelected(doc.clips.length);setMessage('Added '+(marker.title||marker.primary_tag.name)+' to the timeline.');
     }
     function changeClip(patch){edit({clips:doc.clips.map((c,i)=>i===selected?{...c,...patch}:c)});}
+    function removeClip(){
+      if(selected==null||!doc.clips[selected])return;
+      const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);
+    }
+    function editingText(target){return target instanceof Element&&(target.closest('input,textarea,select,[role="textbox"]')||target.isContentEditable);}
+    function clipShortcutTarget(target){return view==='editor'&&!busy&&!modal&&!editingText(target)&&(target===document.body||target instanceof Element&&!!target.closest('main.mc'));}
+    useEffect(()=>{
+      function copyOrCut(e){
+        if(!clipShortcutTarget(e.target)||!clip||!e.clipboardData)return;
+        e.clipboardData.setData('text/plain',patterns.encodeClip(clip));e.preventDefault();e.stopPropagation();
+        if(e.type==='cut')removeClip();
+      }
+      function paste(e){
+        if(!clipShortcutTarget(e.target)||!e.clipboardData)return;
+        const copied=patterns.decodeClip(e.clipboardData.getData('text/plain'));if(!copied)return;
+        e.preventDefault();e.stopPropagation();
+        if(doc.clips.length>=2000){setMessage('A compilation supports up to 2000 clips.');return;}
+        const index=selected==null?doc.clips.length:selected+1, clips=doc.clips.slice();clips.splice(index,0,copied);
+        edit({clips});setSelected(index);
+        requestAnimationFrame(()=>document.querySelectorAll('.mc-timeline-clip')[index]?.focus());
+      }
+      document.addEventListener('copy',copyOrCut,true);document.addEventListener('cut',copyOrCut,true);document.addEventListener('paste',paste,true);
+      return()=>{document.removeEventListener('copy',copyOrCut,true);document.removeEventListener('cut',copyOrCut,true);document.removeEventListener('paste',paste,true);};
+    });
     function move(from,to){if(from===to)return;edit({clips:patterns.reorder(doc.clips,from,to)});setSelected(to);}
     async function play(position=0){
       trimControls.current?.pause();
@@ -350,9 +374,10 @@
     }
     useEffect(()=>{
       function hotkey(e){
+        if((e.key==='Delete'||e.key==='Backspace')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&clipShortcutTarget(e.target)&&clip){e.preventDefault();e.stopPropagation();if(!e.repeat)removeClip();return;}
         if(e.code!=='Space'||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||modal)return;
         const target=e.target;
-        if(target instanceof Element&&(target.closest('input,textarea,select,[role="textbox"]')||target.isContentEditable))return;
+        if(editingText(target))return;
         e.preventDefault();e.stopPropagation();if(!e.repeat)toggleTimeline();
       }
       document.addEventListener('keydown',hotkey,true);return()=>document.removeEventListener('keydown',hotkey,true);
@@ -396,7 +421,7 @@
               !!doc.clips.length&&button('Play compilation',()=>perform(()=>play(0)),busy,{className:'mc-primary'}))),
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause'))),
           h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Full-duration cached clips'))),
-        view==='editor'&&h(Inspector,{key:String(selected)+':'+(clip?.scene_id||''),onBeforePlay:stop,trimControls,clip,index:selected,total:doc.clips.length,busy,onChange:changeClip,onMove:move,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))}),onRemove:()=>{const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);},onPlay:()=>perform(()=>play(entries[selected].start))})),
+        view==='editor'&&h(Inspector,{key:String(selected)+':'+(clip?.scene_id||''),onBeforePlay:stop,trimControls,clip,index:selected,total:doc.clips.length,busy,onChange:changeClip,onMove:move,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))}),onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start))})),
       view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:setSelected,onSeek:seek,onMove:move}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Clip cache'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to the viewer?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and view',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),

@@ -44,3 +44,13 @@ test('trim timestamps convert between source seconds and player-style times',()=
   assert.equal(patterns.parseTime(' 2:05 '),125);
   for(const text of ['', '90', '1:', '1:60', '1:99:00', '-1:00', '1:02abc', 'Infinity:00'])assert.equal(patterns.parseTime(text),null);
 });
+test('clipboard round trip preserves independent trims and speed phases without resolved media',()=>{
+  const original={scene_id:'42',marker_id:'3',title:'Sample',start:1.25,end:3.5,phases:[{repeat:3,speed:.5}],streams:[{url:'private-url'}]};
+  const encoded=patterns.encodeClip(original), pasted=patterns.decodeClip(encoded);
+  assert.equal(encoded.includes('private-url'),false);
+  assert.deepEqual(pasted,{scene_id:'42',marker_id:'3',title:'Sample',start:1.25,end:3.5,phases:[{repeat:3,speed:.5}]});
+  pasted.phases[0].repeat=9;
+  assert.equal(original.phases[0].repeat,3);
+  assert.equal(patterns.decodeClip(encoded).phases[0].repeat,3);
+  for(const value of ['hello','{}','null',encoded.replace('"end":3.5','"end":0'),encoded.replace('"speed":0.5','"speed":999'),encoded.replace('"version":1','"version":2')])assert.equal(patterns.decodeClip(value),null);
+});

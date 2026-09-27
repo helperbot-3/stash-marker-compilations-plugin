@@ -29,6 +29,18 @@ const assert=require('node:assert/strict');
     await clips.first().click();
     await field('End').fill('0:02');await field('End').press('Enter');
     await combo('Apply a preset').selectOption('3-2-3');
+    await clips.first().press('ControlOrMeta+c');await clips.first().press('ControlOrMeta+v');
+    assert.equal(await clips.count(),3);
+    assert.equal(await combo('Phase 2 speed').inputValue(),'0.5');
+    await clips.nth(1).press('ControlOrMeta+x');assert.equal(await clips.count(),2);
+    await clips.last().click();await clips.last().press('ControlOrMeta+v');
+    assert.equal(await clips.count(),3);
+    await clips.last().press('Delete');assert.equal(await clips.count(),2);
+    await field('Compilation name').press('ControlOrMeta+a');await field('Compilation name').press('ControlOrMeta+x');
+    assert.equal(await clips.count(),2);
+    await field('Compilation name').press('ControlOrMeta+v');assert.equal(await field('Compilation name').inputValue(),project);
+    await clips.first().click();
+
     await combo('Fine adjustment step').selectOption('0.01');
     await button('Step forward').click();await button('Set start here').click();
     assert.equal(await field('Start').inputValue(),'0:01.01');
