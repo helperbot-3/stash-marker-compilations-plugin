@@ -17,7 +17,7 @@
   const button = (text, onClick, disabled, props) => h('button', Object.assign({type:'button',onClick,disabled:!!disabled},props),text);
   function Field({label,children}) {return h('label',{className:'mc-field'},h('span',null,label),children);}
 
-  function TimeField({label,value,disabled,onChange}) {
+  function TimeField({label,value,disabled,onChange,onFocus}) {
     const [draft,setDraft]=useState(()=>patterns.formatTime(value)), [error,setError]=useState('');
     useEffect(()=>{setDraft(patterns.formatTime(value));setError('');},[value]);
     function commit(){
@@ -26,7 +26,7 @@
       setError('');setDraft(patterns.formatTime(seconds));
       if(seconds!==value)onChange(seconds);
     }
-    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled,placeholder:'0:00',spellCheck:false,
+    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled,onFocus,placeholder:'0:00',spellCheck:false,
       onChange:e=>{setDraft(e.target.value);setError('');},onBlur:commit,
       onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setDraft(patterns.formatTime(value));setError('');}}}),
       error&&h('small',{role:'alert'},error));
@@ -156,7 +156,65 @@
         h('label',{className:'mc-scrub'},'Position',h('input',{'aria-label':'Compilation position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>onSeek(Number(e.target.value))})),h('output',null,time(current)+' / '+time(total))));
   }
 
-  function Inspector({clip,index,total,busy,onChange,onMove,onRemove,onPlay,onApplyAll}) {
+  function TrimPreview({clip,onApply,onCancel}) {
+    const client=useApolloClient(), video=useRef(null), pending=useRef(clip.start), limit=useRef(null);
+    const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
+    const [start,setStart]=useState(clip.start), [end,setEnd]=useState(clip.end), [position,setPosition]=useState(clip.start);
+    const [step,setStep]=useState(.1), [playing,setPlaying]=useState(false), [ready,setReady]=useState(false), [seeking,setSeeking]=useState(true), [error,setError]=useState('');
+    useEffect(()=>{
+      let disposed=false;
+      client.query({query:gql`query CompilationTrimSource($id:ID!){findScene(id:$id){sceneStreams{url mime_type label}}}`,variables:{id:clip.scene_id},fetchPolicy:'network-only'})
+        .then(r=>{if(disposed)return;const compatible=(r.data.findScene?.sceneStreams||[]).filter(s=>!/mpegurl|dash/i.test(s.mime_type||''));setStreams(compatible);if(!compatible.length)setError('No compatible source stream is available for trimming.');})
+        .catch(e=>{if(!disposed)setError(e.message);});
+      return()=>{disposed=true;};
+    },[clip.scene_id]);
+    function seek(value){
+      const v=video.current;if(!v||!ready)return;
+      v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
+      setSeeking(true);v.currentTime=target;setPosition(target);
+    }
+    function loaded(){
+      const v=video.current;
+      if(!Number.isFinite(v.duration)||v.duration<=0){setError('This stream does not provide a seekable duration. Choose another stream.');return;}
+      setDuration(v.duration);setReady(true);setError('');
+      const target=Math.min(pending.current,v.duration);v.currentTime=target;setPosition(target);setSeeking(v.seeking);
+    }
+    function update(){const v=video.current;if(!v)return;setPosition(v.currentTime);if(limit.current!=null&&v.currentTime>=limit.current){v.pause();v.currentTime=limit.current;limit.current=null;}}
+    useEffect(()=>{let frame;function tick(){if(video.current&&!video.current.paused)update();frame=requestAnimationFrame(tick);}frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);},[]);
+    function play(selection){
+      const v=video.current;if(!v||!ready)return;
+      limit.current=selection?end:null;
+      if(selection){v.currentTime=start;setPosition(start);}
+      v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
+    }
+    function mark(which){const v=video.current;if(!v||v.seeking)return;v.pause();limit.current=null;const point=Number(v.currentTime.toFixed(6));setPosition(point);which==='start'?setStart(point):setEnd(point);}
+    const valid=ready&&start>=0&&end>start&&end<=duration;
+    return h('div',{className:'mc-trimmer'},
+      h('p',{className:'mc-muted'},clip.title+' · Adjust this compilation clip; the original marker stays unchanged.'),
+      h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'auto',playsInline:true,onLoadedMetadata:loaded,
+        onTimeUpdate:update,onPlay:()=>setPlaying(true),onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();},
+        onError:()=>{setReady(false);setError('This source could not be played. Choose another stream.');}})),
+      error&&h('p',{role:'alert'},error),
+      h('div',{className:'mc-trim-controls'},
+        button(playing?'Pause preview':'Play source',()=>playing?video.current.pause():play(false),!ready),
+        button('Play selected range',()=>play(true),!valid),
+        h('output',{'aria-label':'Trim preview time'},patterns.formatTime(Number(position.toFixed(3)))+' / '+patterns.formatTime(Number(duration.toFixed(3)))),
+        streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type)))),
+      h('label',{className:'mc-trim-scrub'},'Source position',h('input',{type:'range',min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready,onChange:e=>seek(Number(e.target.value))})),
+      h('div',{className:'mc-trim-controls'},
+        button('− Step',()=>seek(position-step),!ready||seeking,{'aria-label':'Step backward'}),
+        h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[.01,.1,1].map(s=>h('option',{key:s,value:s},s+' seconds'))),
+        button('+ Step',()=>seek(position+step),!ready||seeking,{'aria-label':'Step forward'}),
+        h(TimeField,{label:'Go to source time',value:position,disabled:!ready,onFocus:()=>video.current?.pause(),onChange:seek})),
+      h('div',{className:'mc-trim-boundaries'},
+        h('div',null,h(TimeField,{label:'Preview start (m:ss)',value:start,onChange:setStart}),button('Jump to start',()=>seek(start),!ready),button('Set start here',()=>mark('start'),!ready||seeking)),
+        h('div',null,h(TimeField,{label:'Preview end (m:ss)',value:end,onChange:setEnd}),button('Jump to end',()=>seek(end),!ready),button('Set end here',()=>mark('end'),!ready||seeking))),
+      ready&&!valid&&h('p',{role:'alert'},'End must be after start, and both times must be within the source video.'),
+      h('p',{className:'mc-muted'},'Fine steps seek by time. The displayed frame depends on the source video’s frame rate.'),
+      h('div',{className:'mc-trim-apply'},button('Cancel',onCancel,false),button('Apply trim',()=>onApply({start,end}),!valid,{className:'mc-primary'})));
+  }
+
+  function Inspector({clip,index,total,busy,onChange,onMove,onRemove,onPlay,onApplyAll,onTrim}) {
     if(!clip)return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector')),h('div',{className:'mc-inspector-empty'},h('span',null,'↖'),h('strong',null,'Select a timeline clip'),h('p',null,'Its source range and repeat pattern will appear here.')));
     const phases=patterns.phases(clip);
     const patchPhase=(n,patch)=>onChange({phases:phases.map((p,j)=>j===n?{...p,...patch}:p)});
@@ -165,6 +223,7 @@
       h('div',{className:'mc-inspector-content'},h('h3',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id},'Open source scene ↗'),
         h('div',{className:'mc-trim'},h(TimeField,{label:'Start (m:ss)',value:clip.start,disabled:busy,onChange:start=>onChange({start})}),
           h(TimeField,{label:'End (m:ss)',value:clip.end,disabled:busy,onChange:end=>onChange({end})})),
+        button('Fine-tune with preview',onTrim,busy,{className:'mc-trim-open'}),
         h('p',{className:'mc-time-hint'},'Source times · m:ss or h:mm:ss · decimals supported'),
         h('p',{className:'mc-clip-duration'},time(Math.max(0,clip.end-clip.start))+' source · '+time(patterns.duration(clip))+' with repeats'),
         h('fieldset',{className:'mc-pattern'},h('legend',null,'Repeat & speed'),
@@ -311,9 +370,10 @@
               button(doc.clips.length?'Play compilation':'+ Add markers',()=>doc.clips.length?perform(()=>play(0)):setModal('markers'),busy,{className:'mc-primary'}))),
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Source trims · Repeats · Variable speed'))),
           h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Full-duration cached clips'))),
-        h(Inspector,{key:selected,clip,index:selected,total:doc.clips.length,busy,onChange:changeClip,onMove:move,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))}),onRemove:()=>{const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);},onPlay:()=>perform(()=>play(entries[selected].start))})),
+        h(Inspector,{key:selected,clip,index:selected,total:doc.clips.length,busy,onTrim:()=>{stop();setModal('trim');},onChange:changeClip,onMove:move,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))}),onRemove:()=>{const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);},onPlay:()=>perform(()=>play(entries[selected].start))})),
       h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:setSelected,onSeek:seek,onMove:move,onAdd:()=>setModal('markers')}),
       h('footer',{className:'mc-editor-footer'},h('span',null,'One timeline. Your own rhythm.'),button('Clip cache'+(job?' · generating…':''),()=>setModal('cache'),busy)),
+      modal==='trim'&&clip&&dialog('Fine-tune clip',h(TrimPreview,{clip,onApply:patch=>{changeClip(patch);setModal(null);},onCancel:()=>setModal(null)}),null,'xl'),
       modal==='markers'&&dialog('Add markers to timeline',h(React.Fragment,null,
         h('div',{className:'mc-browser-filters'},h(Field,{label:'Search markers'},h('input',{type:'search',value:query,autoFocus:true,onChange:e=>{setQuery(e.target.value);setPage(1);}})),
           h(Field,{label:'Topic / tag'},h('select',{value:tag,onChange:e=>{setTag(e.target.value);setPage(1);}},h('option',{value:''},'All tags'),tags.map(t=>h('option',{key:t.id,value:t.id},t.name))))),

@@ -38,6 +38,11 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    Times also accept **h:mm:ss** and fractional seconds (for example `1:23.5`).
    Press Enter or leave the field to apply. The preview shows the original **Source**
    time alongside the compilation position, so trim times are easy to compare.
+   **Fine-tune with preview** opens the original source video: scrub, jump to either
+   boundary, or step by 1, 0.1, or 0.01 seconds. Use **Set start here / Set end here**,
+   preview the selected range, then **Apply trim** and save the compilation. Cancel
+   discards preview edits. This changes the compilation clip, not the Stash marker.
+   Steps seek by time; displayed frames depend on the source frame rate.
 3. Drag clips to reorder them, use **Earlier / Later** in the Inspector, or press
    **Alt + Left / Right** on a focused clip. Use **Zoom / Fit** for long timelines.
 4. Set a name and **Save**. Open existing projects or create a new one through
