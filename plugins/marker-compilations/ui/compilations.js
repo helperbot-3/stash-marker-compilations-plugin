@@ -448,6 +448,11 @@
         h('div',{className:'mc-inline'},button('Generate clips',()=>perform(generate),busy||!!job||!doc.clips.length,{className:'mc-primary'}),job&&button('Cancel generation',()=>perform(async()=>{await client.mutate({mutation:gql`mutation($id:ID!){stopJob(job_id:$id)}`,variables:{id:job}});}),busy))),button('Done',()=>setModal(null),false)));
   }
   api.register.route('/marker-compilations',Page);
-  api.patch.before('MainNavBar.MenuItems',props=>[{...props,children:h(React.Fragment,null,props.children,h(api.libraries.Bootstrap.Nav.Link,{as:api.libraries.ReactRouterDOM.NavLink,to:'/marker-compilations',eventKey:'/marker-compilations',className:'col-4 col-sm-3 col-md-2 col-lg-auto mc-nav-link'},h('svg',{className:'mc-nav-icon',viewBox:'0 0 24 24',width:18,height:18,fill:'currentColor','aria-hidden':true},h('path',{d:'M3 3h18v18H3V3zm2 2v3h2V5H5zm12 0v3h2V5h-2zM5 10v4h2v-4H5zm12 0v4h2v-4h-2zM5 16v3h2v-3H5zm12 0v3h2v-3h-2zM10 8v8l6-4-6-4z'})),h('span',null,'Compilations')))}]);
+  api.patch.before('MainNavBar.MenuItems',props=>[{...props,children:h(React.Fragment,null,props.children,
+    h(api.libraries.Bootstrap.Nav.Link,{as:'div',eventKey:'/marker-compilations',className:'col-4 col-sm-3 col-md-2 col-lg-auto'},
+      h(api.libraries.Bootstrap.Button,{as:api.libraries.ReactRouterDOM.NavLink,to:'/marker-compilations',exact:true,className:'minimal p-4 p-xl-2 d-flex d-xl-inline-block flex-column justify-content-between align-items-center mc-nav-link'},
+        h('svg',{className:'svg-inline--fa fa-icon nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0 mc-nav-icon',viewBox:'0 0 24 24',fill:'currentColor','aria-hidden':true},
+          h('path',{d:'M3 3h18v18H3V3zm2 2v3h2V5H5zm12 0v3h2V5h-2zM5 10v4h2v-4H5zm12 0v4h2v-4h-2zM5 16v3h2v-3H5zm12 0v3h2v-3h-2zM10 8v8l6-4-6-4z'})),
+        h('span',null,'Compilations'))))}]);
   api.patch.before('SettingsToolsSection',props=>[{...props,children:h(React.Fragment,null,props.children,h(api.components.Setting,{heading:h(Link,{to:'/marker-compilations'},'Open Marker Compilations')}))}]);
 })();
