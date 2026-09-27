@@ -14,6 +14,11 @@ Reload the available plugins, install **Marker Compilations**, then refresh the 
 Open **Settings → Tools → Open Marker Compilations**. Updates are delivered through
 this same source, just like Library Triage.
 
+If you installed 0.1.0–0.3.0, the package date was missing, so Stash's update filter
+hides the upgrade. Under **Installed Plugins**, click **Check for updates**, then
+**Show all**, select **Marker Compilations**, and click **Update** once. Refresh the
+browser afterward. Version 0.3.1 repairs this metadata for subsequent updates.
+
 Repository: https://github.com/helperbot-3/stash-marker-compilations-plugin
 
 ## Manual install
