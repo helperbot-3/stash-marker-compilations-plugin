@@ -30,3 +30,5 @@
 
 .mc .mc-apply-pattern{display:block;margin-top:10px;font-size:11px;background:transparent;color:var(--mc-muted)}
 @media(max-width:700px){.mc{display:flex;flex-direction:column}.mc-header{order:0}.mc-notice{order:1}.mc-workspace{display:contents}.mc-monitor{order:2}.mc-timeline{order:3}.mc-inspector{order:4;margin-top:14px}.mc-editor-footer{order:5}}
+
+.mc-time-hint{font-size:10px;color:var(--mc-muted);margin-bottom:7px!important}.mc-trim input,.mc-source-time{font-family:monospace!important;font-variant-numeric:tabular-nums}.mc-source-time{font-size:11px;color:var(--mc-text)}.mc-trim small[role=alert]{color:#efa6a1;font-size:10px}

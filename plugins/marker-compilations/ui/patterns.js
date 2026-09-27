@@ -37,7 +37,21 @@
     if(from<0||from>=clips.length||to<0||to>=clips.length)return clips;
     const result=clips.slice(), [clip]=result.splice(from,1);result.splice(to,0,clip);return result;
   }
-  const api={presets,phases,duration,timeline,expand,locate,reorder};
+  function formatTime(seconds) {
+    const value=Math.max(0,Number(seconds)||0);
+    const minutes=Math.floor(value/60);
+    const remainder=Number((value-minutes*60).toFixed(6));
+    if(remainder===60)return (minutes+1)+':00';
+    return minutes+':'+String(remainder).padStart(remainder<10?String(remainder).length+1:2,'0');
+  }
+  function parseTime(text) {
+    const match=String(text).trim().match(/^(?:(\d+):)?(\d+):([0-5]?\d(?:\.\d{1,6})?)$/);
+    if(!match)return null;
+    if(match[1]!==undefined&&Number(match[2])>=60)return null;
+    const value=Number(match[1]||0)*3600+Number(match[2])*60+Number(match[3]);
+    return Number.isFinite(value)&&value<=Number.MAX_SAFE_INTEGER?value:null;
+  }
+  const api={presets,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

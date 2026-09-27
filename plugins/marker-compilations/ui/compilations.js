@@ -17,10 +17,26 @@
   const button = (text, onClick, disabled, props) => h('button', Object.assign({type:'button',onClick,disabled:!!disabled},props),text);
   function Field({label,children}) {return h('label',{className:'mc-field'},h('span',null,label),children);}
 
+  function TimeField({label,value,disabled,onChange}) {
+    const [draft,setDraft]=useState(()=>patterns.formatTime(value)), [error,setError]=useState('');
+    useEffect(()=>{setDraft(patterns.formatTime(value));setError('');},[value]);
+    function commit(){
+      const seconds=patterns.parseTime(draft);
+      if(seconds===null){setDraft(patterns.formatTime(value));setError('Use m:ss, for example 1:30. Previous time restored.');return;}
+      setError('');setDraft(patterns.formatTime(seconds));
+      if(seconds!==value)onChange(seconds);
+    }
+    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled,placeholder:'0:00',spellCheck:false,
+      onChange:e=>{setDraft(e.target.value);setError('');},onBlur:commit,
+      onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setDraft(patterns.formatTime(value));setError('');}}}),
+      error&&h('small',{role:'alert'},error));
+  }
+
   function Player({clips,mode,seekRequest,onProgress,onActive,onStop}) {
     const initial=patterns.locate(clips,seekRequest.position);
     const [index,setIndex]=useState(initial.index), [sourceIndex,setSourceIndex]=useState(0);
     const [error,setError]=useState(''), [playing,setPlaying]=useState(false), [volume,setVolume]=useState(1);
+    const [sourceTime,setSourceTime]=useState(clips[initial.index].start+initial.offset);
     const video=useRef(null), advancing=useRef(false), pending=useRef(initial.offset);
     const shouldPlay=useRef(true), finished=useRef(false), activeIndex=useRef(index);
     const clip=clips[index], cached=mode==='cache';
@@ -30,6 +46,7 @@
     function report() {
       if(!video.current)return;
       const offset=Math.max(0,Math.min(video.current.currentTime-start,end-start));
+      setSourceTime(clip.start+offset);
       onProgress(clip.timelineStart+offset/clip.speed);
     }
     function ready() {
@@ -98,6 +115,7 @@
         button('⏭',()=>{advancing.current=false;go(next);},next<0,{'aria-label':'Next clip'}),
         button('Stop',onStop,false),
         h('span',{className:'mc-pass',role:'status'},'Pass '+(index+1)+' / '+clips.length+' · '+clip.speed+'× · Repeat '+(clip.repeatIndex+1)+'/'+clip.repeatCount),
+        h('output',{className:'mc-source-time','aria-label':'Source time'},'Source '+time(sourceTime)),
         h('label',{className:'mc-volume'},'Volume',h('input',{type:'range',min:0,max:1,step:.05,value:volume,onChange:e=>{const value=Number(e.target.value);setVolume(value);if(video.current)video.current.volume=value;}})),
         !cached&&streams.length>1&&h('select',{'aria-label':'Source stream',value:sourceIndex,onChange:e=>{pending.current=Math.max(0,video.current.currentTime-start);shouldPlay.current=!video.current.paused;setSourceIndex(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type||'Source '+(i+1))))));
   }
@@ -145,8 +163,9 @@
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
       h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector'),h('span',null,'CLIP '+String(index+1).padStart(2,'0'))),
       h('div',{className:'mc-inspector-content'},h('h3',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id},'Open source scene ↗'),
-        h('div',{className:'mc-trim'},h(Field,{label:'Start (seconds)'},h('input',{type:'number',min:0,step:.1,value:clip.start,disabled:busy,onChange:e=>onChange({start:e.target.value===''?'':Number(e.target.value)})})),
-          h(Field,{label:'End (seconds)'},h('input',{type:'number',min:0,step:.1,value:clip.end,disabled:busy,onChange:e=>onChange({end:e.target.value===''?'':Number(e.target.value)})}))),
+        h('div',{className:'mc-trim'},h(TimeField,{label:'Start (m:ss)',value:clip.start,disabled:busy,onChange:start=>onChange({start})}),
+          h(TimeField,{label:'End (m:ss)',value:clip.end,disabled:busy,onChange:end=>onChange({end})})),
+        h('p',{className:'mc-time-hint'},'Source times · m:ss or h:mm:ss · decimals supported'),
         h('p',{className:'mc-clip-duration'},time(Math.max(0,clip.end-clip.start))+' source · '+time(patterns.duration(clip))+' with repeats'),
         h('fieldset',{className:'mc-pattern'},h('legend',null,'Repeat & speed'),
           h(Field,{label:'Apply a preset'},h('select',{value:'',disabled:busy,onChange:e=>{if(e.target.value)onChange({phases:patterns.presets[e.target.value].map(p=>({...p}))});}},

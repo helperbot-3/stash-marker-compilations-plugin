@@ -34,7 +34,10 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 1. Click **+ Add markers** to open the marker browser. Search or filter by tag,
    add clips, then click **Done** to return to the editor.
 2. Each marker becomes a box on the **Timeline**. Click a box to select it;
-   its **Inspector** shows source start/end and repeat/speed settings.
+   its **Inspector** shows source start/end in **m:ss** and repeat/speed settings.
+   Times also accept **h:mm:ss** and fractional seconds (for example `1:23.5`).
+   Press Enter or leave the field to apply. The preview shows the original **Source**
+   time alongside the compilation position, so trim times are easy to compare.
 3. Drag clips to reorder them, use **Earlier / Later** in the Inspector, or press
    **Alt + Left / Right** on a focused clip. Use **Zoom / Fit** for long timelines.
 4. Set a name and **Save**. Open existing projects or create a new one through

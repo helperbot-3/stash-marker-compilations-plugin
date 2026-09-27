@@ -22,7 +22,7 @@ const assert=require('node:assert/strict');
     await page.getByRole('textbox',{name:'Compilation name',exact:true}).fill('Browser integration');
     const clips=page.locator('.mc-timeline-clip');
     await clips.first().click();
-    await page.getByRole('spinbutton',{name:'End (seconds)',exact:true}).fill('2');
+    await page.getByRole('textbox',{name:'End (m:ss)',exact:true}).fill('0:02');
     await combo('Apply a preset').selectOption('3-2-3');
     await clips.first().press('Alt+ArrowRight');
     assert.match(await clips.first().innerText(),/Closing clip/);

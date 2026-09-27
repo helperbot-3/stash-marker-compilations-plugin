@@ -35,3 +35,12 @@ test('timeline reorder preserves clip trims and phase data',()=>{
   assert.deepEqual(clips,[a,b,c]);
   assert.equal(patterns.reorder(clips,-1,2),clips);
 });
+test('trim timestamps convert between source seconds and player-style times',()=>{
+  for(const [seconds,text] of [[0,'0:00'],[9.5,'0:09.5'],[90,'1:30'],[3599.125,'59:59.125'],[3600,'60:00'],[3723.456789,'62:03.456789']]) {
+    assert.equal(patterns.formatTime(seconds),text);
+    assert.equal(patterns.parseTime(text),seconds);
+  }
+  assert.equal(patterns.parseTime('1:02:03.5'),3723.5);
+  assert.equal(patterns.parseTime(' 2:05 '),125);
+  for(const text of ['', '90', '1:', '1:60', '1:99:00', '-1:00', '1:02abc', 'Infinity:00'])assert.equal(patterns.parseTime(text),null);
+});
