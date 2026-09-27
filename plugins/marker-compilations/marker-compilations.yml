@@ -1,0 +1,21 @@
+name: Marker Compilations
+description: Arrange markers into saved compilations with source playback and optional full-duration cached clips.
+version: 0.1.0
+url: https://github.com/helperbot-3/stash-marker-compilations-plugin
+interface: raw
+exec:
+  - python3
+  - "{pluginDir}/backend.py"
+ui:
+  javascript:
+    - ui/patterns.js
+    - ui/compilations.js
+  css:
+    - ui/compilations.css
+  assets:
+    /cache/: cache/
+tasks:
+  - name: Generate compilation clips
+    description: Generate reusable full-duration clips for a saved compilation. Start this from the compilation editor.
+    defaultArgs:
+      action: generate
