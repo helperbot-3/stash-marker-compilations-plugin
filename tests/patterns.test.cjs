@@ -17,3 +17,21 @@ test('old compilations default to a single normal-speed pass',()=>{
   assert.equal(patterns.duration({start:4,end:9}),5);
   assert.equal(patterns.expand([{start:4,end:9}]).length,1);
 });
+test('timeline duration accounts for repeats and speed, and seeking maps to source offsets',()=>{
+  const clips=[{start:10,end:20,phases:patterns.presets['3-2-3']},{start:30,end:35}];
+  assert.deepEqual(patterns.timeline(clips),[{index:0,start:0,end:100,duration:100},{index:1,start:100,end:105,duration:5}]);
+  const passes=patterns.expand(clips);
+  assert.deepEqual(patterns.locate(passes,35),{index:3,offset:2.5});
+  assert.deepEqual(patterns.locate(passes,50),{index:4,offset:0});
+  assert.deepEqual(patterns.locate(passes,100),{index:8,offset:0});
+  assert.deepEqual(patterns.locate(passes,999),{index:8,offset:5});
+  assert.deepEqual(patterns.locate(passes,-2),{index:0,offset:0});
+});
+test('timeline reorder preserves clip trims and phase data',()=>{
+  const a={title:'A',start:1,end:2}, b={title:'B',phases:patterns.presets['3-2-3']}, c={title:'C'};
+  const clips=[a,b,c];
+  assert.deepEqual(patterns.reorder(clips,0,2),[b,c,a]);
+  assert.deepEqual(patterns.reorder(clips,2,0),[c,a,b]);
+  assert.deepEqual(clips,[a,b,c]);
+  assert.equal(patterns.reorder(clips,-1,2),clips);
+});

@@ -31,27 +31,37 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 
 ## Use
 
-- Find markers by search and tag; add them in any order, including repeated markers.
-- Markers with a valid end use the full interval. Others use the default duration
-  shown in the editor, capped at the source duration.
-- Set a name, adjust start/end seconds, reorder clips with the arrow buttons, and save.
-- Each clip has a **Repeat & speed pattern**: an ordered list of phases, each with a
-  repeat count and playback speed. Use the **3 normal / 2 slow / 3 normal** preset,
-  or edit it to any variant (for example 2× normal, 2× at 0.75 speed, 3× normal).
-  The marker browser also offers a 2/2/2 preset and an **Apply pattern to all clips** action.
-- Speeds: 0.25×, 0.5×, 0.75×, 1×, 1.25×, 1.5×, 2× and 3×. Each phase supports
-  1–20 repeats; each clip supports up to 10 phases. All phases of one clip finish
-  before the next clip starts. Total duration includes repeats and playback speeds.
-- Patterns work in both playback modes. Repeats reuse the same video element when
-  the source URL is unchanged, and cached clips remain at normal speed: changing a
-  pattern needs no additional encoding or duplicate media. Pitch preservation is
-  requested from the browser during slow/fast playback.
-- **Play sources** seeks each source video to the selected start and advances at its end.
-  A source selector allows switching to another browser-compatible Stash stream.
-- Under **Full-duration clip cache**, choose maximum width and whether to include audio,
-  then **Generate clips**. Progress appears in the editor and Stash's task queue.
-- **Play cached clips** plays the generated intervals. Unlike built-in marker previews,
-  these clips have no 20-second cap. The entire compilation is still an editable list.
+1. Click **+ Add markers** to open the marker browser. Search or filter by tag,
+   add clips, then click **Done** to return to the editor.
+2. Each marker becomes a box on the **Timeline**. Click a box to select it;
+   its **Inspector** shows source start/end and repeat/speed settings.
+3. Drag clips to reorder them, use **Earlier / Later** in the Inspector, or press
+   **Alt + Left / Right** on a focused clip. Use **Zoom / Fit** for long timelines.
+4. Set a name and **Save**. Open existing projects or create a new one through
+   **Compilations**. Previously saved compilations remain compatible.
+5. Click **Play compilation** for the large preview. Double-click a timeline clip
+   to start there, or seek using the ruler or position slider. **Fullscreen** expands
+   the preview and playback controls; Escape returns to the editor.
+
+The Inspector's **Repeat & speed** phases each have a repeat count and speed.
+Choose **3 normal → 2 slow → 3 normal**, the 2/2/2 preset, or your own phases.
+**Use this pattern for all clips** copies the selected pattern while retaining
+individual source trims. Options in the marker browser set defaults for new clips.
+
+Speeds range from 0.25× to 3×, with 1–20 repeats per phase and up to 10 phases.
+All phases of a clip finish before the next clip starts. Timeline widths and the
+playhead account for repeats and speed, showing actual viewing time. Editing a
+clip stops playback so the next preview uses the updated sequence.
+
+Markers with an end use their full interval; others use the marker browser's
+fallback duration, capped at the source duration. Choose **Source videos** in the
+preview to play from original scenes. The stream selector can switch to another
+browser-compatible Stash stream.
+
+For generated intervals, open **Clip cache**, choose width/audio, and click
+**Generate clips**. Then select **Cached clips** in the preview. These intervals
+have no 20-second preview cap. Repetition and speed changes reuse the same files
+without further encoding. Pitch preservation is requested from the browser.
 
 The cache is optional. Transitions can buffer; playback is not guaranteed to be
 frame-perfect or gapless. Source mode uses browser-supported progressive streams;

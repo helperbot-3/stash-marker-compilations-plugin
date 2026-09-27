@@ -9,6 +9,7 @@ root = Path(__file__).resolve().parent
 out = Path(sys.argv[1] if len(sys.argv) > 1 else '_site/main')
 out.mkdir(parents=True, exist_ok=True)
 package = root / 'plugins/marker-compilations'
+version = next(line.split(':', 1)[1].strip() for line in (package / 'marker-compilations.yml').read_text().splitlines() if line.startswith('version:'))
 archive = out / 'marker-compilations.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zipped:
     for relative in ['marker-compilations.yml', 'backend.py', 'ui/patterns.js', 'ui/compilations.js', 'ui/compilations.css']:
@@ -20,8 +21,8 @@ digest = hashlib.sha256(archive.read_bytes()).hexdigest()
   name: Marker Compilations
   metadata:
     description: Saved marker compilations with source playback and full-duration clip caching.
-  version: 0.1.0-{}
+  version: {}-{}
   path: marker-compilations.zip
   sha256: {}
-'''.format(digest[:12], digest))
+'''.format(version, digest[:12], digest))
 print(archive.resolve())
