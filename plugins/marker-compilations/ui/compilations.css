@@ -57,3 +57,14 @@
 @media(max-width:700px){.mc-editor{padding:8px}.mc-editor .mc-back{width:100%;text-align:left}.mc-editor .mc-header{gap:6px}.mc-editor .mc-monitor{height:300px}.mc-inspector-columns{grid-template-columns:minmax(0,1fr)}.mc-inspector-columns .mc-pattern{border-left:0;border-top:1px solid var(--mc-border);padding:10px 0 0}.mc-inspector-columns .mc-trim-preview{height:150px}.mc-timeline-toolbar .mc-scrub{flex-basis:40%}.mc-timeline-toolbar>.mc-inline:last-child{margin-left:0}.mc-nav-link{flex-direction:column;gap:5px}.mc-nav-icon{width:24px;height:24px}}
 
 .mc-editor .mc-monitor:fullscreen{height:100dvh;width:100vw}
+
+/* Give spare inspector height to the source image, keeping trim controls below it. */
+.mc-editor .mc-inspector{display:flex;flex-direction:column}
+.mc-inspector>.mc-panel-heading{flex-shrink:0}
+.mc-inspector-columns{flex:1}
+.mc-trimmer{display:flex;flex-direction:column;min-width:0}
+.mc-trimmer>*{flex-shrink:0}
+.mc-inspector-columns .mc-trim-preview{position:relative;flex:1 0 112px;height:auto;min-height:112px}
+.mc-trim-preview video{position:absolute;inset:0;display:block}
+@media(max-width:1100px){.mc-inspector-columns .mc-trim-preview{flex-basis:130px;min-height:130px}}
+@media(max-width:700px){.mc-inspector-columns .mc-trim-preview{flex-basis:150px;min-height:150px}}

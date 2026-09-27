@@ -41,7 +41,7 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    edit the selection, or **New compilation** to start a new one.
    The main navigation includes a filmstrip icon. The editor has a compact two-column
    inspector with inline trimming and no internal vertical scrollbars. Clip actions,
-   position, zoom and cache controls live above the timeline.
+   position, zoom and preparation controls live above the timeline.
 2. In the nested **editor**, use the single **+ Add markers** button to browse and filter
    markers by search/tag. Add clips, then click **Done**.
 3. Click a timeline clip to open the compact two-column **Inspector**. The left
@@ -82,8 +82,8 @@ fallback duration, capped at the source duration. Choose **Source videos** in th
 preview to play from original scenes. The stream selector can switch to another
 browser-compatible Stash stream.
 
-For generated intervals, open **Clip cache**, choose width/audio, and click
-**Generate clips**. Then select **Cached clips** in the preview. These intervals
+For generated intervals, open **Prepare clips**, choose width/audio, and click
+**Generate clips**. Then select **Prepared clips** in the preview. These intervals
 have no 20-second preview cap. Repetition and speed changes reuse the same files
 without further encoding. Pitch preservation is requested from the browser.
 

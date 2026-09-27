@@ -69,7 +69,7 @@
       setIndex(next);
     }
     useEffect(()=>{
-      setError(!url?(cached?'This clip has not been cached.':'No compatible source stream is available.'): '');
+      setError(!url?(cached?'This clip has not been prepared. Use Prepare clips or choose Source videos.':'No compatible source stream is available.'): '');
       activeIndex.current=index;onActive(clip.clipIndex);
       ready();
     },[index,url]);
@@ -108,7 +108,7 @@
         onPlay:()=>{setPlaying(true);setError('');},onPause:()=>setPlaying(false),onClick:toggle,
         onTimeUpdate:()=>{if(video.current.currentTime>=end)go(index+1);report();},
         onEnded:()=>{if(video.current.currentTime>=end-.02)go(index+1);},
-        onError:()=>setError('Playback failed. Choose another source stream or generate cached clips.')}),
+        onError:()=>setError('Playback failed. Choose another source stream or prepare clips for playback.')}),
         error&&h('div',{className:'mc-player-message',role:'status'},error)),
       h('div',{className:'mc-transport'},
         button('⏮',()=>{advancing.current=false;go(previous);},clip.clipIndex===0,{'aria-label':'Previous clip'}),
@@ -146,7 +146,7 @@
         h('label',{className:'mc-scrub'},h('input',{'aria-label':'Compilation position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>onSeek(Number(e.target.value))})),
         h('output',{'aria-label':'Timeline time'},time(current)+' / '+time(total)),
         h('div',{className:'mc-inline'},h('label',{className:'mc-zoom'},'Zoom',h('input',{type:'range',min:1,max:8,step:.25,value:zoom,onChange:e=>setZoom(Number(e.target.value))})),button('Fit',()=>setZoom(1),false),
-          button('Clip cache'+(job?' · generating…':''),onCache,busy))),
+          button('Prepare clips'+(job?' · generating…':''),onCache,busy))),
       h('div',{className:'mc-timeline-scroll',ref:scroller},h('div',{className:'mc-timeline-canvas',style:{width:canvasWidth}},
         h('div',{className:'mc-ruler',onClick:seek,'aria-label':'Timeline ruler'},ticks.map(t=>h('span',{key:t,style:{left:t*scale}},time(t)))),
         h('div',{className:'mc-track'},!clips.length?h('div',{className:'mc-timeline-empty'},h('strong',null,'Build your sequence here'),h('p',null,'Add markers, then select a clip to edit its trim and playback pattern.')):
@@ -416,17 +416,17 @@
           doc.id&&h('div',{className:'mc-library-actions'},button('Edit compilation',()=>switchView('editor'),busy),button('Delete compilation',()=>{if(window.confirm('Delete this compilation? Source scenes and markers are kept.'))perform(async()=>{await op({action:'delete',id:doc.id,revision:doc.revision});choose(blank());await load();});},busy))),
         h('section',{className:'mc-monitor',ref:monitor,'aria-label':'Preview viewport'},
           h('div',{className:'mc-monitor-heading'},h('div',null,h('span',{className:'mc-eyebrow'},'COMPILATION PREVIEW'),h('strong',null,view==='viewer'?doc.name:active!=null?doc.clips[active]?.title:clip?.title||'Your sequence')),
-            h('div',{className:'mc-inline'},h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Cached clips')),
+            h('div',{className:'mc-inline'},h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Prepared clips')),
               button(fullscreen?'Exit fullscreen':'Fullscreen',toggleFullscreen,false))),
           player?h(Player,{key:player.key,clips:player.clips,mode:player.mode,seekRequest,onProgress:progress,onActive:activate,onStop:stop,controls:playerControls}):
             h(React.Fragment,null,h('div',{className:'mc-video-surface mc-idle'},poster&&h('img',{src:poster,alt:''}),h('div',null,h('span',{className:'mc-idle-glyph','aria-hidden':true},'▷'),
               h('strong',null,doc.clips.length?'Ready when you are':'Your compilation starts here'),h('p',null,doc.clips.length?'Play the full sequence, or double-click a timeline clip to start there.':'Add markers to build a timeline of your favourite moments.'),
               !!doc.clips.length&&button('Play compilation',()=>perform(()=>play(0)),busy,{className:'mc-primary'}))),
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause'))),
-          view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Full-duration cached clips'))),
+          view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
         view==='editor'&&h(Inspector,{key:String(selected)+':'+(clip?.scene_id||''),onBeforePlay:stop,trimControls,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))})})),
       view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:setSelected,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
-      view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Clip cache'+(job?' · generating…':''),()=>setModal('cache'),busy)),
+      view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
       modal==='markers'&&dialog('Add markers to timeline',h(React.Fragment,null,
         h('div',{className:'mc-browser-filters'},h(Field,{label:'Search markers'},h('input',{type:'search',value:query,autoFocus:true,onChange:e=>{setQuery(e.target.value);setPage(1);}})),
@@ -440,7 +440,8 @@
           h('img',{src:m.screenshot,alt:'',loading:'lazy'}),h('div',null,h('strong',null,m.title||m.primary_tag.name),h('p',null,m.scene.title||'Scene '+m.scene.id),h('small',null,time(m.seconds)+' → '+(m.end_seconds>m.seconds?time(m.end_seconds):'default duration'))),button('+ Add',()=>add(m),busy,{'aria-label':'Add '+(m.title||m.primary_tag.name)})))),
         h('div',{className:'mc-pagination'},button('Previous page',()=>setPage(page-1),page===1||loading),h('span',null,'Page '+page),button('Next page',()=>setPage(page+1),page*24>=count||loading))),
         h(React.Fragment,null,h('span',{role:'status'},doc.clips.length+' clips on timeline'),button('Done',()=>setModal(null),false,{className:'mc-primary'})),'xl'),
-      modal==='cache'&&dialog('Full-duration clip cache',h(React.Fragment,null,h('p',null,'Generate each interval once and reuse it across compilations. Repeats and speed changes do not duplicate media.'),
+      modal==='cache'&&dialog('Prepare clips for playback',h(React.Fragment,null,h('p',null,'Optional: create a separate video file for each trimmed interval. This can help when playing the original source videos is unreliable, but uses extra disk space.'),
+        h('p',null,'For normal playback, leave the player on Source videos; no preparation is needed. After generating, choose Prepared clips in the player. This does not export a single compilation movie.'),
         h(Field,{label:'Maximum clip width'},h('select',{value:doc.width,disabled:busy,onChange:e=>edit({width:Number(e.target.value)})},[640,1280,1920].map(w=>h('option',{key:w,value:w},w+' px')))),
         h('label',null,h('input',{type:'checkbox',checked:doc.audio,disabled:busy,onChange:e=>edit({audio:e.target.checked})}),' Include audio'),
         h('p',{role:'status'},jobStatus),message&&h('p',{role:'status'},message),

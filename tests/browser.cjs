@@ -57,7 +57,7 @@ const assert=require('node:assert/strict');
     assert.equal(await page.getByRole('spinbutton',{name:'Phase 1 repeats',exact:true}).inputValue(),'3');
     await combo('Apply a preset').selectOption('once');
     await button('Save').click();await page.getByText('Compilation saved.',{exact:true}).waitFor();
-    await button('Clip cache').click();await button('Generate clips').click();
+    await button('Prepare clips').click();await button('Generate clips').click();
     await page.getByText('Full-duration clips are ready.',{exact:true}).last().waitFor({timeout:30000});
     await button('Done').click();
     for(const mode of ['cache','source']) {
