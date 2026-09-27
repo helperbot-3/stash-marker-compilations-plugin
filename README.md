@@ -36,10 +36,13 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 
 ## Use
 
-1. **Viewer** is the landing view. Choose a saved compilation from the visible list,
+1. The **compilation library** is the landing view. Choose a saved compilation from the visible list,
    search by name, and play it in the large viewport. Use **Edit compilation** to
    edit the selection, or **New compilation** to start a new one.
-2. In **Editor**, use the single **+ Add markers** button to browse and filter
+   The main navigation includes a filmstrip icon. The editor has a compact two-column
+   inspector with inline trimming and no internal vertical scrollbars. Clip actions,
+   position, zoom and cache controls live above the timeline.
+2. In the nested **editor**, use the single **+ Add markers** button to browse and filter
    markers by search/tag. Add clips, then click **Done**.
 3. Click a timeline clip to open the compact two-column **Inspector**. The left
    column has the source preview, scrubber, 1 / 0.1 / 0.01-second steps, and start/end
@@ -49,7 +52,7 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    Times accept `m:ss`, `h:mm:ss`, and fractional seconds. Steps seek by time;
    displayed frames depend on the source frame rate.
 4. The right column edits the ordered repetition/speed phases. Drag timeline clips
-   to reorder, use the Inspector arrows, or press **Alt + Left / Right** on a clip.
+   to reorder, use the timeline toolbar arrows, or press **Alt + Left / Right** on a clip.
    Use **Zoom / Fit** for long timelines. **Cmd+C/X/V** (or Ctrl on Windows/Linux)
    copies/cuts/pastes the selected clip, including its trim and repeat/speed pattern.
    Paste inserts after the selection, or at the end of an empty/unselected timeline.
@@ -58,8 +61,8 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 5. **Space** plays or pauses the compilation timeline in both views. It leaves text
    fields, dropdowns, and dialogs alone. Starting timeline playback pauses the source
    trim preview, and starting the source preview stops timeline playback.
-6. **Save** persists edits. Switching to Viewer with unsaved edits offers **Save and view**,
-   **Discard edits**, or **Keep editing**. The Viewer list always contains saved versions. Existing saved
+6. **Save** persists edits. **Back to compilations** with unsaved edits offers **Save and return**,
+   **Discard edits**, or **Keep editing**. The library list always contains saved versions. Existing saved
    compilations remain compatible.
 7. Double-click a timeline clip to play from it, or seek on the ruler/position slider.
    **Fullscreen** expands the main viewport and playback controls.
