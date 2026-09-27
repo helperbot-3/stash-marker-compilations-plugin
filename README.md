@@ -11,7 +11,7 @@ Once GitHub Pages has deployed, add this source under **Settings → Plugins →
 `https://helperbot-3.github.io/stash-marker-compilations-plugin/main/index.yml`
 
 Reload the available plugins, install **Marker Compilations**, then refresh the browser.
-Open **Settings → Tools → Open Marker Compilations**. Updates are delivered through
+Open **Compilations** in Stash’s main navigation. Updates are delivered through
 this same source, just like Library Triage.
 
 If you installed 0.1.0–0.3.0, the package date was missing, so Stash's update filter
@@ -27,7 +27,7 @@ Repository: https://github.com/helperbot-3/stash-marker-compilations-plugin
 2. Copy the entire `plugins/marker-compilations` directory into Stash's configured plugins directory.
    Keep `marker-compilations.yml` **inside** that directory beside `backend.py` and `ui/`.
 3. In Stash, choose **Settings → Plugins → Reload plugins**, then reload the browser.
-4. Open **Settings → Tools → Open Marker Compilations** (or `/marker-compilations` on your Stash server).
+4. Open **Compilations** in Stash’s main navigation (or `/marker-compilations` on your Stash server). The Settings → Tools link remains available.
 
 For Docker, Python and FFmpeg must be available inside the Stash container. The
 plugin uses Stash's configured FFmpeg path, falling back to `ffmpeg` on PATH.
@@ -36,29 +36,33 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 
 ## Use
 
-1. Click **+ Add markers** to open the marker browser. Search or filter by tag,
-   add clips, then click **Done** to return to the editor.
-2. Each marker becomes a box on the **Timeline**. Click a box to select it;
-   its **Inspector** shows source start/end in **m:ss** and repeat/speed settings.
-   Times also accept **h:mm:ss** and fractional seconds (for example `1:23.5`).
-   Press Enter or leave the field to apply. The preview shows the original **Source**
-   time alongside the compilation position, so trim times are easy to compare.
-   **Fine-tune with preview** opens the original source video: scrub, jump to either
-   boundary, or step by 1, 0.1, or 0.01 seconds. Use **Set start here / Set end here**,
-   preview the selected range, then **Apply trim** and save the compilation. Cancel
-   discards preview edits. This changes the compilation clip, not the Stash marker.
-   Steps seek by time; displayed frames depend on the source frame rate.
-3. Drag clips to reorder them, use **Earlier / Later** in the Inspector, or press
-   **Alt + Left / Right** on a focused clip. Use **Zoom / Fit** for long timelines.
-4. Set a name and **Save**. Open existing projects or create a new one through
-   **Compilations**. Previously saved compilations remain compatible.
-5. Click **Play compilation** for the large preview. Double-click a timeline clip
-   to start there, or seek using the ruler or position slider. **Fullscreen** expands
-   the preview and playback controls; Escape returns to the editor.
+1. **Viewer** is the landing view. Choose a saved compilation from the visible list,
+   search by name, and play it in the large viewport. Use **Edit compilation** to
+   edit the selection, or **New compilation** to start a new one.
+2. In **Editor**, use the single **+ Add markers** button to browse and filter
+   markers by search/tag. Add clips, then click **Done**.
+3. Click a timeline clip to open the compact two-column **Inspector**. The left
+   column has the source preview, scrubber, 1 / 0.1 / 0.01-second steps, and start/end
+   fields. Use the arrow next to a boundary to jump there, or **Set** to use the
+   current preview position. **Play range** previews just the interval. Changes
+   apply directly to the compilation clip; the original Stash marker is unchanged.
+   Times accept `m:ss`, `h:mm:ss`, and fractional seconds. Steps seek by time;
+   displayed frames depend on the source frame rate.
+4. The right column edits the ordered repetition/speed phases. Drag timeline clips
+   to reorder, use the Inspector arrows, or press **Alt + Left / Right** on a clip.
+   Use **Zoom / Fit** for long timelines.
+5. **Space** plays or pauses the compilation timeline in both views. It leaves text
+   fields, dropdowns, and dialogs alone. Starting timeline playback pauses the source
+   trim preview, and starting the source preview stops timeline playback.
+6. **Save** persists edits. Switching to Viewer with unsaved edits offers **Save and view**,
+   **Discard edits**, or **Keep editing**. The Viewer list always contains saved versions. Existing saved
+   compilations remain compatible.
+7. Double-click a timeline clip to play from it, or seek on the ruler/position slider.
+   **Fullscreen** expands the main viewport and playback controls.
 
 The Inspector's **Repeat & speed** phases each have a repeat count and speed.
 Choose **3 normal → 2 slow → 3 normal**, the 2/2/2 preset, or your own phases.
-**Use this pattern for all clips** copies the selected pattern while retaining
+**Apply to all clips** copies the selected pattern while retaining
 individual source trims. Options in the marker browser set defaults for new clips.
 
 Speeds range from 0.25× to 3×, with 1–20 repeats per phase and up to 10 phases.
