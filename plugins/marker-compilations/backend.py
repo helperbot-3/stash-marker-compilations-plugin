@@ -78,6 +78,12 @@ def validate_clips(clips):
             if speed not in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3):
                 raise ValueError('Choose one of the supported playback speeds')
             clean_phases.append({'repeat': int(repeat), 'speed': speed})
+            if 'ranges' in phase:
+                ranges = phase['ranges']
+                if not isinstance(ranges, list) or len(ranges) != int(repeat) or any(r not in ('auto', 'full', 'hot') for r in ranges):
+                    raise ValueError('Choose Full clip or Hot zone for each repetition')
+                clean_phases[-1]['ranges'] = ranges[:]
+
         clean.append({'scene_id': scene_id, 'marker_id': str(clip.get('marker_id', '')),
                       'title': str(clip.get('title', ''))[:300], 'start': start, 'end': end, 'phases': clean_phases})
         zone = clip.get('hot_zone')

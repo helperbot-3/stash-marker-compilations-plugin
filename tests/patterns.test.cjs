@@ -138,3 +138,25 @@ test('hot zones survive independent clipboard and catalog copies; invalid zones 
     assert.equal(patterns.decodeClip(patterns.encodeClip({...clip,hot_zone:zone})),null);
   }
 });
+
+test('explicit repetition ranges override first and last and keep duration, seeking and copies consistent',()=>{
+  const clip={scene_id:'1',start:10,end:20,hot_zone:{start:12,end:14},phases:[{repeat:3,speed:.5,ranges:['hot','full','hot']}]};
+  const passes=patterns.expand([clip]);
+  assert.deepEqual(passes.map(p=>p.isHotZone),[true,false,true]);
+  assert.deepEqual(passes.map(p=>p.cacheOffset),[2,0,2]);
+  assert.equal(patterns.duration(clip),28);
+  assert.equal(passes.at(-1).timelineEnd,28);
+  assert.deepEqual(patterns.locate(passes,5),{index:1,offset:.5});
+  const copy=patterns.decodeClip(patterns.encodeClip(clip));
+  assert.deepEqual(copy.phases,clip.phases);
+  const inserted=patterns.insertClip([],clip,0)[0];
+  inserted.phases[0].ranges[0]='full';
+  assert.equal(clip.phases[0].ranges[0],'hot');
+  assert.equal(patterns.duration({...clip,hot_zone:undefined}),60);
+  for(const ranges of [['hot'],['bad','full','hot'],null])assert.equal(patterns.decodeClip(patterns.encodeClip({...clip,phases:[{repeat:3,speed:1,ranges}]})),null);
+});
+test('auto ranges preserve legacy rules alongside explicit choices across phases',()=>{
+  const clip={start:0,end:10,hot_zone:{start:2,end:3},phases:[{repeat:2,speed:1,ranges:['hot','auto']},{repeat:2,speed:1,ranges:['full','auto']}]};
+  assert.deepEqual(patterns.expand([clip]).map(p=>p.isHotZone),[true,true,false,false]);
+  assert.equal(patterns.duration(clip),22);
+});

@@ -9,7 +9,7 @@ function manager(items, onSave) {
   const component=source.slice(source.indexOf('  function PatternManager('),source.indexOf('  function Inspector('));
   const state=[];let cursor=0;
   const h=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity)});
-  const context={Set,Field:'field',h,useState(initial){const i=cursor++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>{state[i]=typeof value==='function'?value(state[i]):value;}];},button:(text,onClick,disabled,props)=>h('button',{onClick,disabled,...props},text)};
+  const context={RepetitionRanges:'ranges',resizePhase:(p,repeat)=>({...p,repeat}),Set,Field:'field',h,useState(initial){const i=cursor++;if(!(i in state))state[i]=typeof initial==='function'?initial():initial;return [state[i],value=>{state[i]=typeof value==='function'?value(state[i]):value;}];},button:(text,onClick,disabled,props)=>h('button',{onClick,disabled,...props},text)};
   vm.createContext(context);
   const render=vm.runInContext(component+';PatternManager',context);
   const nodes=tree=>[tree,...tree.children.filter(x=>x&&typeof x==='object').flatMap(nodes)];
@@ -34,4 +34,17 @@ test('Save pattern passes the draft rather than the click event and exposes erro
   await ui.find(n=>n.type==='button'&&n.children[0]==='Save pattern').props.onClick({type:'click'});
   assert.deepEqual(saved,[{name:'Test',phases:[{repeat:1,speed:1}]}]);
   assert.equal(ui.find(n=>n.props.role==='alert').children[0],'Save failed');
+});
+test('range controls toggle individual plays and resize preserves earlier choices',()=>{
+  const source=fs.readFileSync(require.resolve('../plugins/marker-compilations/ui/compilations.js'),'utf8');
+  const context={patterns:require('../plugins/marker-compilations/ui/patterns.js'),h:(type,props,...children)=>({type,props,children:children.flat(Infinity)}),button:(text,onClick,disabled,props)=>({text,onClick,disabled,props})};
+  vm.createContext(context);
+  const api=vm.runInContext(source.slice(source.indexOf('  function resizePhase('),source.indexOf('  function PatternManager('))+';({resizePhase,RepetitionRanges})',context);
+  const sequence=[{repeat:3,speed:1}];let changed;
+  const tree=api.RepetitionRanges({sequence,onChange:p=>changed=p,disabled:false});
+  tree.children[1].children[0].onClick();
+  assert.deepEqual(JSON.parse(JSON.stringify(changed[0].ranges)),['hot','auto','auto']);
+  assert.equal(sequence[0].ranges,undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.resizePhase(changed[0],4).ranges)),['hot','auto','auto','auto']);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.resizePhase(changed[0],1).ranges)),['hot']);
 });

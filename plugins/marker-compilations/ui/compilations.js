@@ -293,10 +293,23 @@
             h(TimeField,{label:'Hot '+boundary,value:clip.hot_zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>onChange({hot_zone:{...clip.hot_zone,[boundary]:value}})}),
             button('↦',()=>seek(clip.hot_zone[boundary]),!ready||busy,{'aria-label':'Jump to hot zone '+boundary}),
             button('Set',()=>mark('hot_'+boundary),!ready||seeking||busy||frameBusy,{'aria-label':'Set hot zone '+boundary+' here'}))),
-          h('small',null,'First & last: full clip · Middle plays: hot zone'))),
+          h('small',null,'Playback range is set in Repeat & speed.'))),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
+  }
+
+  function resizePhase(phase,repeat){return {...phase,repeat,...(phase.ranges?{ranges:Array.from({length:Math.max(0,Math.min(20,Number(repeat)||0))},(_,i)=>phase.ranges[i]||'auto')}:{})};}
+  function RepetitionRanges({sequence,onChange,disabled}) {
+    let ordinal=0;
+    return h('details',{className:'mc-repetition-ranges'},h('summary',null,'Repetition ranges'),
+      h('div',{className:'mc-range-choices'},sequence.flatMap((phase,i)=>Array.from({length:Math.max(0,Math.min(20,Number(phase.repeat)||0))},(_,j)=>{
+        const number=++ordinal, range=patterns.repetitionRange(sequence,i,j);
+        return button(number+' '+(range==='hot'?'Hot':'Full'),()=>onChange(sequence.map((p,k)=>k===i?{...p,ranges:Array.from({length:p.repeat},(_,n)=>n===j?(range==='hot'?'full':'hot'):(p.ranges?.[n]||'auto'))}:p)),disabled,
+          {key:i+':'+j,'aria-label':'Repetition '+number+': '+(range==='hot'?'Hot zone':'Full clip'),'aria-pressed':range==='hot',title:'Click to switch between Full clip and Hot zone'});
+      }))),
+      button('Reset to first & last full',()=>onChange(sequence.map(({ranges,...p})=>p)),disabled),
+      h('small',null,'No hot zone defined? Full clip is used.'));
   }
 
   function PatternManager({initial,items,onSave,onDelete}) {
@@ -317,9 +330,10 @@
       h(Field,{label:'Pattern name'},h('input',{type:'text',value:draft.name,maxLength:100,disabled:working,onChange:e=>patch({name:e.target.value})})),
       h('div',{className:'mc-phase-labels'},h('span',null,'Repeats'),h('span',null,'Speed')),
       draft.phases.map((phase,index)=>h('div',{className:'mc-phase',key:index},h('span',null,index+1),
-        h('input',{'aria-label':'Pattern phase '+(index+1)+' repeats',type:'number',min:1,max:20,value:phase.repeat,disabled:working,onChange:e=>patch({phases:draft.phases.map((p,i)=>i===index?{...p,repeat:e.target.value===''?'':Number(e.target.value)}:p)})}),
+        h('input',{'aria-label':'Pattern phase '+(index+1)+' repeats',type:'number',min:1,max:20,value:phase.repeat,disabled:working,onChange:e=>patch({phases:draft.phases.map((p,i)=>i===index?resizePhase(p,e.target.value===''?'':Number(e.target.value)):p)})}),
         h('select',{'aria-label':'Pattern phase '+(index+1)+' speed',value:phase.speed,disabled:working,onChange:e=>patch({phases:draft.phases.map((p,i)=>i===index?{...p,speed:Number(e.target.value)}:p)})},[.25,.5,.75,1,1.25,1.5,2,3].map(speed=>h('option',{key:speed,value:speed},speed+'×'))),
         button('×',()=>patch({phases:draft.phases.filter((_,i)=>i!==index)}),working||draft.phases.length===1,{'aria-label':'Remove pattern phase '+(index+1)}))),
+      h(RepetitionRanges,{sequence:draft.phases,disabled:working,onChange:phases=>patch({phases})}),
       h('div',{className:'mc-inline'},
         button('+ Phase',()=>patch({phases:draft.phases.concat({repeat:1,speed:1})}),working||draft.phases.length>=10),
         button(draft.id?'Update pattern':'Save pattern',()=>save(),working||!draft.name.trim(),{className:'mc-primary'}),
@@ -332,7 +346,7 @@
   function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose,frameCache,customPatterns,onManagePatterns}) {
     if(!clip)return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector')),h('div',{className:'mc-inspector-empty'},'Select a timeline clip to edit.'));
     const phases=patterns.phases(clip);
-    const patchPhase=(n,patch)=>onChange({phases:phases.map((p,j)=>j===n?{...p,...patch}:p)});
+    const patchPhase=(n,patch)=>onChange({phases:phases.map((p,j)=>j===n?('repeat' in patch?resizePhase(p,patch.repeat):{...p,...patch}):p)});
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
       h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
       h('div',{className:'mc-inspector-columns'},
@@ -345,6 +359,7 @@
             h('input',{'aria-label':'Phase '+(n+1)+' repeats',type:'number',min:1,max:20,step:1,value:phase.repeat,disabled:busy,onChange:e=>patchPhase(n,{repeat:e.target.value===''?'':Number(e.target.value)})}),
             h('select',{'aria-label':'Phase '+(n+1)+' speed',value:phase.speed,disabled:busy,onChange:e=>patchPhase(n,{speed:Number(e.target.value)})},[.25,.5,.75,1,1.25,1.5,2,3].map(rate=>h('option',{key:rate,value:rate},rate+'×'))),
             button('×',()=>onChange({phases:phases.filter((_,j)=>j!==n)}),busy||phases.length===1,{'aria-label':'Remove phase '+(n+1),className:'mc-icon-button'}))),
+          h(RepetitionRanges,{sequence:phases,disabled:busy,onChange:phases=>onChange({phases})}),
           button('+ Phase',()=>onChange({phases:phases.concat({repeat:1,speed:1})}),busy||phases.length>=10),
           button('Apply to all clips',onApplyAll,busy,{className:'mc-apply-pattern'}),
           button('Save / manage patterns',onManagePatterns,busy,{className:'mc-manage-patterns'}))));

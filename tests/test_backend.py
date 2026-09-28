@@ -77,6 +77,19 @@ class BackendTests(unittest.TestCase):
             with self.subTest(zone=zone), self.assertRaises(ValueError):
                 b.validate(document(clips=[dict(clip, hot_zone=zone)]))
 
+    def test_repetition_ranges_persist_in_patterns_and_clips(self):
+        phases = [{'repeat': 3, 'speed': .5, 'ranges': ['hot', 'full', 'auto']}]
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            saved = store.save_pattern({'name': 'Ranges', 'phases': phases})
+            self.assertEqual(saved['phases'], phases)
+            doc = store.save(document(clips=[dict(document()['clips'][0], phases=phases)]))
+            self.assertEqual(store.get(doc['id'])['clips'][0]['phases'], phases)
+            for ranges in [None, [], ['hot'], ['hot', 'bad', 'full']]:
+                with self.subTest(ranges=ranges), self.assertRaises(ValueError):
+                    store.save_pattern({'name': 'Invalid', 'phases': [dict(phases[0], ranges=ranges)]})
+            store.db.close()
+
     def test_custom_patterns_persist_validate_and_detect_conflicts(self):
         with tempfile.TemporaryDirectory() as directory:
             store = b.Store(Path(directory))

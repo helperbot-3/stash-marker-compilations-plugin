@@ -102,7 +102,11 @@ Enable **Hot zone** in the inspector to define an optional subrange inside the
 clip's Start/End range. Use the frame time fields, jump arrows, and **Set** buttons
 with the shared preview; **Play zone** previews just that subrange. Across the
 entire repeat/speed pattern, the first and last plays use the full clip and every
-middle play uses the hot zone, retaining each phase's speed. One or two plays
+middle play uses the hot zone, retaining each phase's speed. These are the default
+ranges; **Repeat & speed → Repetition ranges** lets you switch any numbered play
+between **Full** and **Hot**, including the first and last. The same controls are
+available when saving/editing patterns, and these choices travel with the pattern.
+**Reset to first & last full** restores the default. With the default, one or two plays
 therefore use the full clip throughout. Without a hot zone, behavior is unchanged.
 Timeline duration and seeking include the shorter middle plays. Hot zones are
 saved and copied with each clip; **Apply to all clips** copies only the pattern.
