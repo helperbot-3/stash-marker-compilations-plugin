@@ -77,6 +77,18 @@ class BackendTests(unittest.TestCase):
             with self.subTest(zone=zone), self.assertRaises(ValueError):
                 b.validate(document(clips=[dict(clip, hot_zone=zone)]))
 
+    def test_multiple_hot_zones_persist_sort_and_validate(self):
+        clip = dict(document()['clips'][0], start=0, end=10, hot_zones=[{'start': 6, 'end': 8}, {'start': 1, 'end': 3}])
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            saved = store.save(document(clips=[clip]))
+            self.assertEqual(store.get(saved['id'])['clips'][0]['hot_zones'], [{'start': 1, 'end': 3}, {'start': 6, 'end': 8}])
+            for zones in [None, [None], [{'start': 1, 'end': 4}, {'start': 3, 'end': 5}], [{'start': 0, 'end': 11}]]:
+                with self.subTest(zones=zones), self.assertRaises(ValueError):
+                    b.validate_clips([dict(clip, hot_zones=zones)])
+            self.assertEqual(b.validate_clips([dict(clip, hot_zones=[])])[0]['hot_zones'], [])
+            store.db.close()
+
     def test_repetition_ranges_persist_in_patterns_and_clips(self):
         phases = [{'repeat': 3, 'speed': .5, 'ranges': ['hot', 'full', 'auto']}]
         with tempfile.TemporaryDirectory() as directory:

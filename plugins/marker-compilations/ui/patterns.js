@@ -20,9 +20,20 @@
   function catalog(document){const items=new Map();for(const c of [...(document.media||[]),...(document.clips||[])])if(!items.has(mediaKey(c)))items.set(mediaKey(c),copyClip(c));return [...items.values()];}
   function insertClip(clips,clip,index){const result=clips.slice();result.splice(Math.max(0,Math.min(index,result.length)),0,copyClip(clip));return result;}
   function phases(clip) { return clip.phases || presets.once; }
+  function hotZones(clip){return (Array.isArray(clip.hot_zones)?clip.hot_zones:clip.hot_zone?[clip.hot_zone]:[]).slice().sort((a,b)=>(a?.start||0)-(b?.start||0));}
   function validHotZone(clip) {
-    const zone=clip.hot_zone;
-    return zone==null||(Number.isFinite(zone.start)&&Number.isFinite(zone.end)&&zone.start>=clip.start&&zone.end<=clip.end&&zone.end>zone.start);
+    if(clip.hot_zones!==undefined&&!Array.isArray(clip.hot_zones))return false;
+    const zones=hotZones(clip);
+    return zones.length<=20&&zones.every((z,i)=>z&&Number.isFinite(z.start)&&Number.isFinite(z.end)&&z.start>=clip.start&&z.end<=clip.end&&z.end>z.start&&(!i||z.start>=zones[i-1].end));
+  }
+  function newHotZone(clip,position){
+    const zones=hotZones(clip), gaps=[];let start=clip.start;
+    for(const z of zones){if(z.start>start)gaps.push({start,end:z.start});start=z.end;}
+    if(start<clip.end)gaps.push({start,end:clip.end});
+    const gap=gaps.find(g=>position>=g.start&&position<g.end)||gaps.sort((a,b)=>(b.end-b.start)-(a.end-a.start))[0];
+    if(!gap||zones.length>=20)return null;
+    const from=position>=gap.start&&position<gap.end?position:gap.start;
+    return {start:from,end:Math.min(gap.end,from+Math.min(1,(gap.end-gap.start)/2))};
   }
   function repetitionRange(sequence,phaseIndex,repeatIndex) {
     const explicit=sequence[phaseIndex].ranges?.[repeatIndex];
@@ -34,7 +45,7 @@
   function validRanges(phase){return phase.ranges===undefined||(Array.isArray(phase.ranges)&&phase.ranges.length===phase.repeat&&phase.ranges.every(r=>['auto','full','hot'].includes(r)));}
   function phaseDurations(clip) {
     const sequence=phases(clip),full=Math.max(0,clip.end-clip.start);
-    const hot=clip.hot_zone&&validHotZone(clip)?clip.hot_zone.end-clip.hot_zone.start:full;
+    const zones=hotZones(clip),hot=zones.length&&validHotZone(clip)?zones.reduce((n,z)=>n+z.end-z.start,0):full;
     return sequence.map((p,i)=>Array.from({length:p.repeat},(_,j)=>repetitionRange(sequence,i,j)==='hot'?hot:full).reduce((n,d)=>n+d,0)/(Number(p.speed)||1));
   }
   function duration(clip) {return phaseDurations(clip).reduce((n,d)=>n+d,0);}
@@ -49,11 +60,12 @@
     let position=0;
     return clips.flatMap((clip,clipIndex)=>{
       return phases(clip).flatMap((phase,phaseIndex)=>Array.from({length:phase.repeat},(_,repeatIndex)=>{
-        const hot=!!clip.hot_zone&&validHotZone(clip)&&repetitionRange(phases(clip),phaseIndex,repeatIndex)==='hot';
-        const start=hot?clip.hot_zone.start:clip.start,end=hot?clip.hot_zone.end:clip.end;
-        const timelineStart=position;position+=(end-start)/phase.speed;
-        return {...clip,start,end,cacheOffset:start-clip.start,isHotZone:hot,speed:phase.speed,clipIndex,phaseIndex,repeatIndex,repeatCount:phase.repeat,timelineStart,timelineEnd:position};
-      }));
+        const zones=hotZones(clip), hot=zones.length>0&&validHotZone(clip)&&repetitionRange(phases(clip),phaseIndex,repeatIndex)==='hot';
+        return (hot?zones:[{start:clip.start,end:clip.end}]).map(({start,end},zoneIndex)=>{
+          const timelineStart=position;position+=(end-start)/phase.speed;
+          return {...clip,start,end,cacheOffset:start-clip.start,isHotZone:hot,zoneIndex:hot?zoneIndex:null,speed:phase.speed,clipIndex,phaseIndex,repeatIndex,repeatCount:phase.repeat,timelineStart,timelineEnd:position};
+        });
+      }).flat());
     });
   }
   function locate(passes,position) {
@@ -111,7 +123,7 @@
   }
   const clipboardType='stash-marker-compilation-clip';
   function copyClip(clip) {
-    return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p,...(p.ranges?{ranges:p.ranges.slice()}:{})})),...(clip.hot_zone?{hot_zone:{...clip.hot_zone}}:{})};
+    return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p,...(p.ranges?{ranges:p.ranges.slice()}:{})})),...(clip.hot_zones!==undefined?{hot_zones:clip.hot_zones.map(z=>({...z}))}:clip.hot_zone?{hot_zone:{...clip.hot_zone}}:{})};
   }
   function encodeClip(clip){return JSON.stringify({type:clipboardType,version:1,clip:copyClip(clip)});}
   function decodeClip(text){
@@ -125,7 +137,7 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

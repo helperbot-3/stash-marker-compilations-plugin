@@ -98,11 +98,11 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 7. Select a timeline clip and use **Play clip** to play from it, or seek on the ruler/position slider.
    **Fullscreen** expands the main viewport and playback controls.
 
-Enable **Hot zone** in the inspector to define an optional subrange inside the
+Use **+ Zone** in the inspector to define optional non-overlapping subranges inside the
 clip's Start/End range. Use the frame time fields, jump arrows, and **Set** buttons
 with the shared preview; **Play zone** previews just that subrange. Across the
 entire repeat/speed pattern, the first and last plays use the full clip and every
-middle play uses the hot zone, retaining each phase's speed. These are the default
+middle play uses all hot zones in chronological order, retaining each phase's speed. These are the default
 ranges; **Repeat & speed → Repetition ranges** lets you switch any numbered play
 between **Full** and **Hot**, including the first and last. The same controls are
 available when saving/editing patterns, and these choices travel with the pattern.
@@ -185,3 +185,14 @@ validate every UI GraphQL operation against the real schema. `node tests/browser
 exercises both playback modes, repeat/speed patterns, persistence, mobile layout and the actual Stash UI using Chrome and seeded test markers named `Long interval`
 and `Closing clip`. It writes test compilations and cached media: never point it at a
 production instance.
+
+### Multiple hot zones
+
+In the clip inspector, use **+ Zone** to add a range in an unused part of the clip.
+Select a numbered zone to adjust its start/end using the existing timecodes, frame
+controls, and main preview. **Play zone** previews the selected range; **Remove**
+deletes that range. Up to 20 non-overlapping zones can be defined per clip.
+Zones play chronologically: each **Hot** repetition plays all zones once, at that
+phase’s speed. Each **Full** repetition plays the entire clip. With no zones, Hot
+also uses the full clip. Existing single hot zones remain available automatically.
+Zone boundaries stay with the clip; saved patterns retain only Full/Hot choices.

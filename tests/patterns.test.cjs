@@ -160,3 +160,26 @@ test('auto ranges preserve legacy rules alongside explicit choices across phases
   assert.deepEqual(patterns.expand([clip]).map(p=>p.isHotZone),[true,true,false,false]);
   assert.equal(patterns.duration(clip),22);
 });
+test('multiple hot zones play chronologically within each repetition, including cached offsets',()=>{
+  const clip={scene_id:'1',start:10,end:30,hot_zones:[{start:22,end:25},{start:12,end:14}],phases:[{repeat:2,speed:.5,ranges:['hot','full']},{repeat:1,speed:1,ranges:['hot']}]};
+  const passes=patterns.expand([clip]);
+  assert.deepEqual(passes.map(p=>[p.start,p.end,p.speed]),[[12,14,.5],[22,25,.5],[10,30,.5],[12,14,1],[22,25,1]]);
+  assert.deepEqual(passes.map(p=>p.cacheOffset),[2,12,0,2,12]);
+  assert.deepEqual(passes.map(p=>p.repeatIndex),[0,0,1,0,0]);
+  assert.equal(patterns.duration(clip),55);
+  assert.equal(passes.at(-1).timelineEnd,55);
+  assert.deepEqual(patterns.locate(passes,4),{index:1,offset:0});
+  const copy=patterns.decodeClip(patterns.encodeClip(clip));
+  assert.deepEqual(copy.hot_zones,clip.hot_zones);
+  const inserted=patterns.insertClip([],clip,0)[0];inserted.hot_zones[0].start=23;
+  assert.equal(clip.hot_zones[0].start,22);
+  assert.equal(patterns.duration({...clip,hot_zones:[]}),100);
+});
+test('zone validation rejects overlap and invalid ranges; adding uses a free gap',()=>{
+  const clip={start:0,end:10,hot_zone:{start:2,end:4}};
+  assert.deepEqual(patterns.hotZones(clip),[{start:2,end:4}]);
+  assert.deepEqual(patterns.newHotZone(clip,5),{start:5,end:6});
+  assert.equal(patterns.newHotZone({...clip,hot_zones:[{start:0,end:10}]},5),null);
+  for(const hot_zones of [null,[null],[{start:2,end:4},{start:3,end:5}],[{start:-1,end:2}],[{start:9,end:11}]])assert.equal(patterns.validHotZone({...clip,hot_zones}),false);
+  assert.equal(patterns.validHotZone({...clip,hot_zones:[{start:2,end:4},{start:4,end:5}]}),true);
+});

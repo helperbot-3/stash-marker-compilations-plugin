@@ -86,14 +86,25 @@ def validate_clips(clips):
 
         clean.append({'scene_id': scene_id, 'marker_id': str(clip.get('marker_id', '')),
                       'title': str(clip.get('title', ''))[:300], 'start': start, 'end': end, 'phases': clean_phases})
-        zone = clip.get('hot_zone')
-        if zone is not None:
+        multiple = 'hot_zones' in clip
+        zones = clip.get('hot_zones') if multiple else ([clip['hot_zone']] if clip.get('hot_zone') is not None else [])
+        if not isinstance(zones, list) or len(zones) > 20:
+            raise ValueError('A clip supports up to 20 hot zones')
+        cleaned_zones = []
+        for zone in zones:
             if not isinstance(zone, dict):
                 raise ValueError('Invalid hot zone')
             hot_start, hot_end = number(zone.get('start'), 'Hot zone start'), number(zone.get('end'), 'Hot zone end')
             if not start <= hot_start < hot_end <= end:
-                raise ValueError('Hot zone must have start < end and stay inside the clip range')
-            clean[-1]['hot_zone'] = {'start': hot_start, 'end': hot_end}
+                raise ValueError('Hot zones must have start < end and stay inside the clip range')
+            cleaned_zones.append({'start': hot_start, 'end': hot_end})
+        cleaned_zones.sort(key=lambda z: z['start'])
+        if any(a['end'] > b['start'] for a, b in zip(cleaned_zones, cleaned_zones[1:])):
+            raise ValueError('Hot zones must not overlap')
+        if multiple:
+            clean[-1]['hot_zones'] = cleaned_zones
+        elif cleaned_zones:
+            clean[-1]['hot_zone'] = cleaned_zones[0]
 
     return clean
 

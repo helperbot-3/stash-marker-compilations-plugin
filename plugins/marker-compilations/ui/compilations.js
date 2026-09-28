@@ -173,6 +173,15 @@
     const client=useApolloClient(), video=useRef(null), pending=useRef(clip.start), limit=useRef(null);
     const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
     const start=clip.start, end=clip.end;
+    const [zoneSelection,setZoneSelection]=useState(0);
+    const zones=patterns.hotZones(clip),zoneIndex=Math.min(zoneSelection,Math.max(0,zones.length-1)),zone=zones[zoneIndex];
+    function updateZone(patch){
+      const updated={...zone,...patch}, next=zones.map((z,i)=>i===zoneIndex?updated:z).sort((a,b)=>a.start-b.start);
+      const accepted=onChange({hot_zone:null,hot_zones:next});
+      if(accepted!==false)setZoneSelection(next.indexOf(updated));return accepted;
+    }
+    function addZone(){const added=patterns.newHotZone(clip,position);if(!added)return;const next=zones.concat(added).sort((a,b)=>a.start-b.start);if(onChange({hot_zone:null,hot_zones:next})!==false)setZoneSelection(next.indexOf(added));}
+
     const [position,setPosition]=useState(clip.start);
     const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
     const frameData=useRef(null), frameRequest=useRef(0), warming=useRef(null), framePending=useRef(null);
@@ -257,7 +266,7 @@
       let data=frameData.current, point=patterns.frameStep(data,current,0);
       if(point===null){data=await loadFrames(current);if(!data)return;point=patterns.frameStep(data,current,0);}
       if(point===null)return;
-      setPosition(point);onChange(which.startsWith('hot_')?{hot_zone:{...clip.hot_zone,[which.slice(4)]:point}}:{[which]:point});
+      setPosition(point);if(which.startsWith('hot_'))updateZone({[which.slice(4)]:point});else onChange({[which]:point});
     }
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
@@ -286,14 +295,17 @@
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>onChange({end})}),
         button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'})),
       h('div',{className:'mc-hot-zone'},
-        h('div',{className:'mc-hot-heading'},h('label',null,h('input',{type:'checkbox',checked:!!clip.hot_zone,disabled:busy,onChange:e=>onChange({hot_zone:e.target.checked?{start,end}:null})}),' Hot zone'),
-          clip.hot_zone&&button('Play zone',()=>play(true,clip.hot_zone),!valid||busy,{'aria-label':'Play hot zone'})),
-        clip.hot_zone&&h(React.Fragment,null,
+        h('div',{className:'mc-hot-heading'},h('strong',null,'Hot zones'),
+          button('+ Zone',addZone,busy||!patterns.newHotZone(clip,position),{'aria-label':'Add hot zone'}),
+          zone&&button('Play zone',()=>play(true,zone),!valid||busy,{'aria-label':'Play hot zone'})),
+        zones.length>0&&h('div',{className:'mc-zone-tabs'},zones.map((z,i)=>button(String(i+1),()=>setZoneSelection(i),busy,{key:i,'aria-label':'Select hot zone '+(i+1),'aria-pressed':i===zoneIndex,title:patterns.frameTime(z.start,fps)+' – '+patterns.frameTime(z.end,fps)})),
+          button('Remove',()=>onChange({hot_zone:null,hot_zones:zones.filter((_,i)=>i!==zoneIndex)}),busy,{'aria-label':'Remove selected hot zone'})),
+        zone&&h(React.Fragment,null,
           ['start','end'].map(boundary=>h('div',{className:'mc-boundary-row',key:boundary},
-            h(TimeField,{label:'Hot '+boundary,value:clip.hot_zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>onChange({hot_zone:{...clip.hot_zone,[boundary]:value}})}),
-            button('↦',()=>seek(clip.hot_zone[boundary]),!ready||busy,{'aria-label':'Jump to hot zone '+boundary}),
+            h(TimeField,{label:'Hot '+boundary,value:zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>updateZone({[boundary]:value})}),
+            button('↦',()=>seek(zone[boundary]),!ready||busy,{'aria-label':'Jump to hot zone '+boundary}),
             button('Set',()=>mark('hot_'+boundary),!ready||seeking||busy||frameBusy,{'aria-label':'Set hot zone '+boundary+' here'}))),
-          h('small',null,'Playback range is set in Repeat & speed.'))),
+          h('small',null,'Hot repetitions play all zones in time order.'))),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
@@ -309,7 +321,7 @@
           {key:i+':'+j,'aria-label':'Repetition '+number+': '+(range==='hot'?'Hot zone':'Full clip'),'aria-pressed':range==='hot',title:'Click to switch between Full clip and Hot zone'});
       }))),
       button('Reset to first & last full',()=>onChange(sequence.map(({ranges,...p})=>p)),disabled),
-      h('small',null,'No hot zone defined? Full clip is used.'));
+      h('small',null,'Hot plays all zones in order; without zones, Full is used.'));
   }
 
   function PatternManager({initial,items,onSave,onDelete}) {
@@ -504,7 +516,7 @@
 
     function changeClip(patch){
       const updated={...clip,...patch};
-      if(!patterns.validHotZone(updated)){setMessage('Hot zone must have start before end and stay inside the clip range. Adjust or disable it before trimming past it.');return false;}
+      if(!patterns.validHotZone(updated)){setMessage('Hot zones must not overlap and must stay inside the clip range, with start before end.');return false;}
       edit({clips:doc.clips.map((c,i)=>i===selected?updated:c)});return true;
     }
     function removeClip(){
