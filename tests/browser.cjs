@@ -128,7 +128,7 @@ const assert=require('node:assert/strict');
     assert.equal(await page.locator('.mc-nav-icon').count(),1);
     assert.equal(await page.getByRole('tab').count(),0);
     assert.ok(await page.evaluate(()=>document.querySelector('main.mc').getBoundingClientRect().bottom<=innerHeight),'Editor and timeline fit at laptop size');
-    assert.equal(await page.evaluate(()=>[...document.querySelectorAll('main.mc *')].filter(e=>['auto','scroll'].includes(getComputedStyle(e).overflowY)&&e.scrollHeight>e.clientHeight+1).length),0,'No nested vertical scrolling');
+    assert.equal(await page.evaluate(()=>[...document.querySelectorAll('main.mc *')].filter(e=>!e.classList.contains('mc-catalog-items')&&['auto','scroll'].includes(getComputedStyle(e).overflowY)&&e.scrollHeight>e.clientHeight+1).length),0,'Only project media may scroll vertically');
     await page.screenshot({path:'.test-runtime/editor.png',fullPage:true});
     await combo('Phase 1 speed').press('Escape');
     assert.equal(await page.locator('.mc-inspector').count(),0,'Escape closes inspector');

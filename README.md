@@ -45,7 +45,7 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 2. In the nested **editor**, use the single **+ Add markers** button to browse and filter
    markers by search/tag. **In project** marks those already imported. Add markers,
    then click **Done**. This collects media without changing the timeline.
-   **Project media** lives in a collapsible left sidebar and keeps these markers independently of timeline positions. Drag
+   **Project media** lives in a collapsible left sidebar with one scrollable list (no pages) and keeps these markers independently of timeline positions. Drag
    a compact thumbnail row onto the timeline to insert before/after the nearest clip, or use **Insert**
    to add it after the selection. Marker stills are loaded from Stash, including for
    existing projects; unavailable stills show a placeholder. A thumbnail badge shows

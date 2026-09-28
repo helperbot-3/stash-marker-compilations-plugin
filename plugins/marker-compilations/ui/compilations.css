@@ -131,3 +131,12 @@
 .mc-media-details small{font-variant-numeric:tabular-nums;font-size:9px}
 .mc-media-sidebar .mc-media-item button{align-self:center;width:22px;height:26px;padding:0;font-size:16px;background:transparent;border-color:transparent}
 @media(max-width:700px){.mc-media-sidebar .mc-catalog-items{grid-template-columns:minmax(0,1fr)}}
+
+/* The media list alone scrolls; search and collapse remain in place. */
+.mc-media-sidebar{display:flex;flex-direction:column;height:clamp(330px,calc(100dvh - 350px),650px);min-height:0}
+.mc-media-sidebar>button,.mc-media-sidebar .mc-catalog-heading{flex-shrink:0}
+.mc-media-sidebar>div:not([hidden]),.mc-media-sidebar .mc-catalog{display:flex;flex-direction:column;flex:1;min-height:0}
+.mc-media-sidebar .mc-catalog-items{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;min-height:0;scrollbar-width:thin;scrollbar-color:#536171 transparent}
+.mc-media-sidebar .mc-media-item{flex-shrink:0;touch-action:pan-y}
+@media(max-width:1100px){.mc-editor .mc-media-sidebar{height:360px}}
+@media(max-width:700px){.mc-editor .mc-media-sidebar{height:260px}.mc-editor.mc-media-collapsed .mc-media-sidebar{height:auto}}

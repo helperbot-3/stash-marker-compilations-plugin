@@ -309,33 +309,37 @@
 
   function MarkerThumbnail({clip,uses}) {
     const client=useApolloClient(), [url,setUrl]=useState(''), [failed,setFailed]=useState(false);
+    const thumbnail=useRef(null), [visible,setVisible]=useState(false);
+    useEffect(()=>{
+      const observer=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting)){setVisible(true);observer.disconnect();}},{rootMargin:'100px'});
+      if(thumbnail.current)observer.observe(thumbnail.current);
+      return()=>observer.disconnect();
+    },[]);
     useEffect(()=>{
       let disposed=false;setUrl('');setFailed(false);
-      if(clip.marker_id)client.query({query:gql`query CompilationMediaThumbnails($id:ID!){findScene(id:$id){scene_markers{id screenshot}}}`,variables:{id:clip.scene_id}})
+      if(visible&&clip.marker_id)client.query({query:gql`query CompilationMediaThumbnails($id:ID!){findScene(id:$id){scene_markers{id screenshot}}}`,variables:{id:clip.scene_id}})
         .then(r=>{if(!disposed)setUrl(r.data.findScene?.scene_markers?.find(m=>String(m.id)===String(clip.marker_id))?.screenshot||'');}).catch(()=>{});
       return()=>{disposed=true;};
-    },[clip.scene_id,clip.marker_id]);
-    return h('span',{className:'mc-media-thumb',title:url&&!failed?'Marker thumbnail':'Marker thumbnail unavailable'},
+    },[clip.scene_id,clip.marker_id,visible]);
+    return h('span',{className:'mc-media-thumb',ref:thumbnail,title:url&&!failed?'Marker thumbnail':'Marker thumbnail unavailable'},
       url&&!failed?h('img',{src:url,alt:'',loading:'lazy',draggable:false,onError:()=>setFailed(true)}):h('span',{'aria-hidden':true},'▧'),
       uses>0&&h('span',{className:'mc-media-uses',title:uses+' on timeline','aria-label':uses+' on timeline'},uses+'×'));
   }
 
   function MediaCatalog({media,clips,busy,onInsert,onDrop}) {
-    const [query,setQuery]=useState(''), [page,setPage]=useState(0), [dragging,setDragging]=useState(null);
+    const [query,setQuery]=useState(''), [dragging,setDragging]=useState(null);
     const drag=useRef(null);
-    function pointerDown(e,c){if(busy||e.button!==0||e.target.closest('button'))return;e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);drag.current={key:patterns.mediaKey(c),title:c.title,x:e.clientX,y:e.clientY,moved:false};}
+    function pointerDown(e,c){if(busy||e.pointerType==='touch'||e.button!==0||e.target.closest('button'))return;e.preventDefault();e.currentTarget.setPointerCapture(e.pointerId);drag.current={key:patterns.mediaKey(c),title:c.title,x:e.clientX,y:e.clientY,moved:false};}
     function pointerMove(e){const d=drag.current;if(!d)return;if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>5)d.moved=true;if(d.moved)setDragging({...d,x:e.clientX,y:e.clientY});}
     function pointerUp(e){const d=drag.current;drag.current=null;setDragging(null);if(d?.moved)onDrop(d.key,e.clientX,e.clientY);}
     const filtered=media.filter(c=>c.title.toLowerCase().includes(query.toLowerCase()));
-    const pages=Math.max(1,Math.ceil(filtered.length/5)), current=Math.min(page,pages-1);
     return h('section',{className:'mc-catalog','aria-label':'Project media catalog'},
       dragging&&h('div',{className:'mc-media-drag-ghost',style:{left:dragging.x+12,top:dragging.y+12},'aria-hidden':true},dragging.title),
       h('div',{className:'mc-catalog-heading'},h('h2',null,'Project media'),h('span',null,media.length+' markers'),
-        h('input',{type:'search','aria-label':'Search project media',placeholder:'Find marker…',value:query,onChange:e=>{setQuery(e.target.value);setPage(0);}}),
-        pages>1&&h('div',{className:'mc-inline'},button('‹',()=>setPage(current-1),current===0,{'aria-label':'Previous media page'}),h('span',null,(current+1)+'/'+pages),button('›',()=>setPage(current+1),current===pages-1,{'aria-label':'Next media page'}))),
+        h('input',{type:'search','aria-label':'Search project media',placeholder:'Find marker…',value:query,onChange:e=>setQuery(e.target.value)})),
       media.length===0?h('p',null,'Use Add markers to collect project media, then drag it onto the timeline.'):
         filtered.length===0?h('p',null,'No matching markers.'):
-        h('div',{className:'mc-catalog-items'},filtered.slice(current*5,current*5+5).map(c=>{
+        h('div',{className:'mc-catalog-items',tabIndex:0,'aria-label':'Project media list'},filtered.map(c=>{
           const key=patterns.mediaKey(c),uses=clips.filter(clip=>patterns.mediaKey(clip)===key).length;
           return h('article',{key,className:'mc-media-item'+(dragging?.key===key?' is-dragging':''),draggable:false,'aria-label':'Project marker: '+c.title,
             onPointerDown:e=>pointerDown(e,c),onPointerMove:pointerMove,onPointerUp:pointerUp,onPointerCancel:()=>{drag.current=null;setDragging(null);}},
