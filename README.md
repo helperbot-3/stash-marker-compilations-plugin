@@ -45,15 +45,16 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 2. In the nested **editor**, use the single **+ Add markers** button to browse and filter
    markers by search/tag. **In project** marks those already imported. Add markers,
    then click **Done**. This collects media without changing the timeline.
-   **Project media** keeps these markers independently of timeline positions. Drag
+   **Project media** lives in a collapsible left sidebar and keeps these markers independently of timeline positions. Drag
    a card onto the timeline to insert before/after the nearest clip, or use **Insert**
    to add it after the selection. Each insertion has independent trim/pattern settings.
    Removing a timeline clip keeps its catalog entry. Existing projects automatically
    seed their catalog from saved timeline clips; their timeline stays unchanged.
-3. Click a timeline clip to open the compact two-column **Inspector**. The left
+3. Single-click to select a timeline clip. Double-click (or press **Enter** on it) to open the compact two-column **Inspector**. The left
    column has the scrubber, 1 / 5 / 10-frame steps, and start/end
-   fields. The main viewport switches to **Trim selected clip** when selecting a
-   timeline clip or using a trim control. **Compilation** switches it back; only
+   fields. The main viewport switches to **Trim selected clip** when opening the
+   inspector or using a trim control. **Escape**, the inspector close button, or
+   **Compilation** returns to the main timeline view, retaining applied edits; only
    one video is visible. Use the arrow next to a boundary to jump there, or **Set** to use the
    current preview position. **Play range** previews just the interval. Changes
    apply directly to the compilation clip; the original Stash marker is unchanged.
@@ -76,12 +77,13 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    **Delete / Backspace** removes the selected clip. Clipboard shortcuts also work
    between compilation editors; ordinary text editing and other pasted text are untouched.
 5. **Space** plays or pauses the compilation timeline in both views. It leaves text
-   fields, dropdowns, and dialogs alone. Starting timeline playback pauses the source
+   typing fields and dialogs alone. Focused buttons, dropdowns, numeric controls,
+   and sliders do not consume Space or activate their normal action. Starting timeline playback pauses the source
    trim preview, and starting the source preview stops timeline playback.
 6. **Save** persists edits. **Back to compilations** with unsaved edits offers **Save and return**,
    **Discard edits**, or **Keep editing**. The library list always contains saved versions. Existing saved
    compilations remain compatible.
-7. Double-click a timeline clip to play from it, or seek on the ruler/position slider.
+7. Select a timeline clip and use **Play clip** to play from it, or seek on the ruler/position slider.
    **Fullscreen** expands the main viewport and playback controls.
 
 The Inspector's **Repeat & speed** phases each have a repeat count and speed.

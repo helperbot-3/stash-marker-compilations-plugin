@@ -90,3 +90,34 @@
 .mc-fps{font-size:9px;font-weight:normal;color:var(--mc-muted);margin-left:8px}.mc .mc-step-controls select{min-width:68px}.mc-boundary-row input{letter-spacing:0;min-width:12ch!important}
 
 .mc-ruler{overflow:hidden}
+/* Media stays left; clip editing is an explicit, dismissible workspace. */
+.mc-editor .mc-workspace{grid-template-columns:210px minmax(0,1fr)}
+.mc-editor.mc-inspecting .mc-workspace{grid-template-columns:210px minmax(0,1fr) 480px}
+.mc-editor.mc-media-collapsed .mc-workspace{grid-template-columns:34px minmax(0,1fr)}
+.mc-editor.mc-media-collapsed.mc-inspecting .mc-workspace{grid-template-columns:34px minmax(0,1fr) 480px}
+.mc-media-sidebar{min-width:0;background:var(--mc-panel);border:1px solid var(--mc-border);border-radius:6px}
+.mc-media-sidebar>button{width:100%;text-align:left;border:0;border-bottom:1px solid var(--mc-border);background:transparent;border-radius:0;padding:8px;font-size:12px}
+.mc-media-sidebar [hidden]{display:none}
+.mc-media-sidebar .mc-catalog{border:0;padding:8px}
+.mc-media-sidebar .mc-catalog-heading{flex-wrap:wrap;gap:6px}
+.mc-media-sidebar .mc-catalog-heading h2{display:none}
+.mc .mc-media-sidebar .mc-catalog-heading input[type=search]{width:100%!important;max-width:none!important;order:2}
+.mc-media-sidebar .mc-catalog-heading .mc-inline{margin-left:auto}
+.mc-media-sidebar .mc-catalog-items{grid-template-columns:minmax(0,1fr)}
+.mc-media-sidebar .mc-media-item{padding:8px;gap:4px}
+.mc-media-sidebar .mc-media-item button{align-self:flex-end}
+.mc-inspector>.mc-panel-heading h2{flex:1;min-width:0}
+.mc-inspector>.mc-panel-heading button{padding:2px 7px}
+@media(max-width:1100px){
+.mc-editor.mc-inspecting .mc-workspace{grid-template-columns:180px minmax(0,1fr)}
+.mc-editor.mc-media-collapsed.mc-inspecting .mc-workspace{grid-template-columns:34px minmax(0,1fr)}
+.mc-editor .mc-edit-sidebar{grid-column:2}
+.mc-editor .mc-media-sidebar{grid-row:1 / span 2}
+}
+@media(max-width:700px){
+.mc-editor .mc-media-sidebar{order:2;margin-bottom:8px}
+.mc-editor .mc-monitor{order:3}
+.mc-editor .mc-timeline{order:4}
+.mc-editor .mc-edit-sidebar{order:5}
+.mc-media-sidebar .mc-catalog-items{grid-template-columns:repeat(2,minmax(0,1fr))}
+}

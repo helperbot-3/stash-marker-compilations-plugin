@@ -123,7 +123,7 @@
         !cached&&streams.length>1&&h('select',{'aria-label':'Source stream',value:sourceIndex,onChange:e=>{pending.current=Math.max(0,video.current.currentTime-start);shouldPlay.current=!video.current.paused;setSourceIndex(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type||'Source '+(i+1))))));
   }
 
-  function Timeline({clips,selected,active,current,busy,onSelect,onSeek,onMove,onRemove,onPlay,onCache,job,onInsertMedia,dropMediaRef}) {
+  function Timeline({clips,selected,active,current,busy,onSelect,onInspect,onSeek,onMove,onRemove,onPlay,onCache,job,onInsertMedia,dropMediaRef}) {
     const scroller=useRef(null), dragIndex=useRef(null);
     const [width,setWidth]=useState(800), [zoom,setZoom]=useState(1), [dropTarget,setDropTarget]=useState(null);
     const entries=patterns.timeline(clips), total=entries.length?entries[entries.length-1].end:0;
@@ -157,8 +157,8 @@
             style:{left:entry.start*scale,width:Math.max(1,entry.duration*scale)},disabled:busy,draggable:!busy,
             'aria-label':'Clip '+(entry.index+1)+': '+c.title,'aria-pressed':selected===entry.index,
             title:c.title+' · '+time(entry.duration)+' · '+patterns.phases(c).map(p=>p.repeat+' plays at '+p.speed+'×').join(' → '),
-            onClick:()=>onSelect(entry.index),onDoubleClick:()=>onSeek(entry.start),
-            onKeyDown:e=>{if(e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();const to=entry.index+(e.key==='ArrowLeft'?-1:1);if(to>=0&&to<clips.length)onMove(entry.index,to);}},
+            onClick:()=>onSelect(entry.index),onDoubleClick:()=>onInspect(entry.index),
+            onKeyDown:e=>{if(e.key==='Enter'&&!e.altKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();if(!e.repeat)onInspect(entry.index);return;}if(e.altKey&&(e.key==='ArrowLeft'||e.key==='ArrowRight')){e.preventDefault();const to=entry.index+(e.key==='ArrowLeft'?-1:1);if(to>=0&&to<clips.length)onMove(entry.index,to);}},
             onDragStart:e=>{dragIndex.current=entry.index;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(entry.index));},
             onDragOver:e=>{if(dragIndex.current!=null){e.preventDefault();setDropTarget(entry.index);}},onDrop:e=>drop(e,entry.index),onDragEnd:()=>{dragIndex.current=null;setDropTarget(null);}},
             h('span',{className:'mc-clip-number'},String(entry.index+1).padStart(2,'0')),h('strong',null,c.title),h('small',null,time(entry.duration)),
@@ -259,12 +259,12 @@
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
   }
 
-  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget}) {
+  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose}) {
     if(!clip)return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector')),h('div',{className:'mc-inspector-empty'},'Select a timeline clip to edit.'));
     const phases=patterns.phases(clip);
     const patchPhase=(n,patch)=>onChange({phases:phases.map((p,j)=>j===n?{...p,...patch}:p)});
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
-      h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗')),
+      h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
       h('div',{className:'mc-inspector-columns'},
         h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget}),
         h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('h3',null,'Repeat & speed'),
@@ -307,6 +307,8 @@
     const [view,setView]=useState('viewer'), [libraryQuery,setLibraryQuery]=useState('');
     const [documents,setDocuments]=useState([]), [doc,setDoc]=useState(blank), [dirty,setDirty]=useState(false);
     const [trimSession,setTrimSession]=useState(0);
+    const [inspectorOpen,setInspectorOpen]=useState(false), [mediaCollapsed,setMediaCollapsed]=useState(false);
+    const spaceCaptured=useRef(false);
     const [preview,setPreview]=useState('compilation'), [trimTarget,setTrimTarget]=useState(null);
     const [selected,setSelected]=useState(null), [active,setActive]=useState(null), [current,setCurrent]=useState(0);
     const [modal,setModal]=useState(null), [mode,setMode]=useState('source'), [poster,setPoster]=useState('');
@@ -318,7 +320,7 @@
     const dropMediaRef=useRef(null), request=useRef(0), monitor=useRef(null), serial=useRef(0), playerControls=useRef(null), trimControls=useRef(null);
     const clip=selected==null?null:doc.clips[selected], entries=patterns.timeline(doc.clips);
     const total=entries.length?entries[entries.length-1].end:0;
-    const media=patterns.catalog(doc), trimActive=view==='editor'&&preview==='trim'&&!!clip;
+    const media=patterns.catalog(doc), trimActive=view==='editor'&&inspectorOpen&&preview==='trim'&&!!clip;
     const progress=useCallback(position=>setCurrent(position),[]), activate=useCallback(index=>setActive(index),[]);
     async function op(args){const r=await client.mutate({mutation:OP,variables:{args}});return r.data.runPluginOperation;}
     async function load(){setDocuments(await op({action:'list'}));}
@@ -366,7 +368,7 @@
     },[job]);
     function stop(){setPlayer(null);setActive(null);setCurrent(0);}
     function edit(patch){setDoc(d=>({...d,media:patterns.catalog(d),...patch}));setDirty(true);stop();}
-    function choose(next,discard=false){if(dirty&&!discard&&!window.confirm('Discard unsaved changes?'))return false;setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();setMessage('');return true;}
+    function choose(next,discard=false){if(dirty&&!discard&&!window.confirm('Discard unsaved changes?'))return false;setInspectorOpen(false);setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();setMessage('');return true;}
     async function perform(work){setBusy(true);setMessage('');try{await work();}catch(e){setMessage(e.message);}finally{setBusy(false);}}
     async function save(){const saved=await op({action:'save',document:doc});setDoc(saved);setDirty(false);await load();return saved;}
     function add(marker){
@@ -383,17 +385,18 @@
     function insertMedia(key,index=selected==null?doc.clips.length:selected+1){
       const item=media.find(c=>patterns.mediaKey(c)===key);if(!item||busy)return;
       if(doc.clips.length>=2000){setMessage('A compilation supports up to 2000 clips.');return;}
-      edit({media,clips:patterns.insertClip(doc.clips,item,index)});setSelected(index);setTrimSession(n=>n+1);setPreview('trim');
+      edit({media,clips:patterns.insertClip(doc.clips,item,index)});setSelected(index);setTrimSession(n=>n+1);setPreview(inspectorOpen?'trim':'compilation');
     }
-    function selectClip(index){trimControls.current?.pause();stop();setSelected(index);setTrimSession(n=>n+1);setPreview('trim');}
-    function showTrim(){stop();setPreview('trim');}
-    function showCompilation(){trimControls.current?.pause();setPreview('compilation');}
+    function selectClip(index){if(index===selected)return;trimControls.current?.pause();if(inspectorOpen)stop();setSelected(index);setTrimSession(n=>n+1);setPreview(inspectorOpen?'trim':'compilation');}
+    function showTrim(){stop();setInspectorOpen(true);setPreview('trim');}
+    function inspectClip(index){selectClip(index);showTrim();}
+    function closeInspector(){trimControls.current?.pause();setInspectorOpen(false);setPreview('compilation');requestAnimationFrame(()=>document.querySelectorAll('.mc-timeline-clip')[selected]?.focus({preventScroll:true}));}
 
     function changeClip(patch){edit({clips:doc.clips.map((c,i)=>i===selected?{...c,...patch}:c)});}
     function removeClip(){
       setTrimSession(n=>n+1);
       if(selected==null||!doc.clips[selected])return;
-      const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);
+      const clips=doc.clips.filter((_,i)=>i!==selected);edit({clips});setSelected(clips.length?Math.min(selected,clips.length-1):null);if(!clips.length)closeInspector();
     }
     function editingText(target){return target instanceof Element&&(target.closest('input,textarea,select,[role="textbox"]')||target.isContentEditable);}
     function clipShortcutTarget(target){return view==='editor'&&!busy&&!modal&&!editingText(target)&&(target===document.body||target instanceof Element&&!!target.closest('main.mc'));}
@@ -444,7 +447,7 @@
     function switchView(next){
       if(next===view)return;
       if(next==='viewer'&&dirty){setModal('unsaved');return;}
-      trimControls.current?.pause();stop();setPreview('compilation');setView(next);
+      trimControls.current?.pause();stop();setInspectorOpen(false);setPreview('compilation');setView(next);
     }
     function toggleTimeline(){
       if(busy||modal||!doc.clips.length)return;
@@ -453,13 +456,18 @@
     }
     useEffect(()=>{
       function hotkey(e){
+        if(e.key==='Escape'&&!modal&&inspectorOpen){e.preventDefault();e.stopImmediatePropagation();closeInspector();return;}
         if((e.key==='Delete'||e.key==='Backspace')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&clipShortcutTarget(e.target)&&clip){e.preventDefault();e.stopPropagation();if(!e.repeat)removeClip();return;}
-        if(e.code!=='Space'||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||modal)return;
+        if((e.code!=='Space'&&e.key!==' ')||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||modal)return;
         const target=e.target;
-        if(editingText(target))return;
-        e.preventDefault();e.stopPropagation();if(!e.repeat)toggleTimeline();
+        if(target instanceof Element&&(target.closest('textarea,input[type="text"],input[type="search"],input:not([type]),[role="textbox"]')||target.isContentEditable))return;
+        e.preventDefault();e.stopImmediatePropagation();spaceCaptured.current=true;
+        if(!e.repeat)toggleTimeline();
       }
-      document.addEventListener('keydown',hotkey,true);return()=>document.removeEventListener('keydown',hotkey,true);
+      function release(e){if((e.code==='Space'||e.key===' ')&&spaceCaptured.current){e.preventDefault();e.stopImmediatePropagation();spaceCaptured.current=false;}}
+      function blur(){spaceCaptured.current=false;}
+      window.addEventListener('keydown',hotkey,true);window.addEventListener('keyup',release,true);window.addEventListener('blur',blur);
+      return()=>{window.removeEventListener('keydown',hotkey,true);window.removeEventListener('keyup',release,true);window.removeEventListener('blur',blur);};
     });
     async function toggleFullscreen(){
       try{if(document.fullscreenElement)await document.exitFullscreen();else await monitor.current.requestFullscreen();}
@@ -468,14 +476,14 @@
     async function reload(){
       if(dirty&&!window.confirm('Discard unsaved changes and reload?'))return;
       const latest=await op({action:'list'});setDocuments(latest);
-      if(doc.id){const next=latest.find(d=>d.id===doc.id)||blank();setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();}
+      if(doc.id){const next=latest.find(d=>d.id===doc.id)||blank();setInspectorOpen(false);setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();}
     }
     async function generate(){const saved=await save();const r=await client.mutate({mutation:TASK,variables:{args:{action:'generate',id:saved.id}}});setJob(r.data.runPluginTask);setJobStatus('Queued');}
     function dialog(title,body,footer,size='lg'){
       return h(Modal,{show:true,onHide:()=>setModal(null),size,centered:true,className:'mc-modal',backdrop:true},
         h(Modal.Header,{closeButton:true},h(Modal.Title,null,title)),h(Modal.Body,null,body),h(Modal.Footer,null,footer));
     }
-    return h('main',{className:'mc mc-'+view,tabIndex:-1},
+    return h('main',{className:'mc mc-'+view+(inspectorOpen?' mc-inspecting':'')+(mediaCollapsed?' mc-media-collapsed':''),tabIndex:-1},
       h(api.libraries.ReactRouterDOM.Prompt,{when:dirty,message:'Discard unsaved compilation changes?'}),
       h('header',{className:'mc-header'},
         view==='editor'?button('← Back to compilations',()=>switchView('viewer'),busy,{className:'mc-back'}):h('div',{className:'mc-brand'},h('h1',null,'Marker compilations')),
@@ -490,21 +498,23 @@
           h('div',{className:'mc-library-list'},documents.filter(d=>d.name.toLowerCase().includes(libraryQuery.toLowerCase())).map(d=>button(h(React.Fragment,null,h('strong',null,d.name),h('small',null,d.clips.length+' clips · '+time(d.clips.reduce((n,c)=>n+patterns.duration(c),0)))),()=>choose(d),busy,{key:d.id,className:'mc-library-item'+(d.id===doc.id?' is-selected':''),'aria-pressed':d.id===doc.id}))),
           !documents.length&&h('p',null,'No saved compilations yet.'),
           doc.id&&h('div',{className:'mc-library-actions'},button('Edit compilation',()=>switchView('editor'),busy),button('Delete compilation',()=>{if(window.confirm('Delete this compilation? Source scenes and markers are kept.'))perform(async()=>{await op({action:'delete',id:doc.id,revision:doc.revision});choose(blank());await load();});},busy))),
+        view==='editor'&&h('aside',{className:'mc-media-sidebar','aria-label':'Project media'},
+          button(mediaCollapsed?'▸':'◂ Project media',()=>setMediaCollapsed(v=>!v),false,{'aria-label':mediaCollapsed?'Expand project media':'Collapse project media','aria-expanded':!mediaCollapsed,'aria-controls':'mc-project-media'}),
+          h('div',{id:'mc-project-media',hidden:mediaCollapsed},h(MediaCatalog,{media,clips:doc.clips,busy,onInsert:insertMedia,onDrop:(key,x,y)=>dropMediaRef.current?.(key,x,y)}))),
         h('section',{className:'mc-monitor',ref:monitor,'aria-label':'Preview viewport'},
           h('div',{className:'mc-monitor-heading'},h('div',null,h('span',{className:'mc-eyebrow'},'COMPILATION PREVIEW'),h('strong',null,trimActive?'Trim: '+clip.title:doc.name)),
-            h('div',{className:'mc-inline'},view==='editor'&&h('div',{className:'mc-preview-modes','aria-label':'Preview mode'},button('Compilation',showCompilation,busy,{'aria-pressed':!trimActive}),button('Trim selected clip',showTrim,busy||!clip,{'aria-pressed':trimActive})),!trimActive&&h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Prepared clips')),
+            h('div',{className:'mc-inline'},view==='editor'&&h('div',{className:'mc-preview-modes','aria-label':'Preview mode'},button('Compilation',closeInspector,busy,{'aria-pressed':!trimActive}),button('Trim selected clip',showTrim,busy||!clip,{'aria-pressed':trimActive})),!trimActive&&h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Prepared clips')),
               button(fullscreen?'Exit fullscreen':'Fullscreen',toggleFullscreen,false))),
           h('div',{className:'mc-main-trim',ref:setTrimTarget,hidden:!trimActive}),
           !trimActive&&(player?h(Player,{key:player.key,clips:player.clips,mode:player.mode,seekRequest,onProgress:progress,onActive:activate,onStop:stop,controls:playerControls}):
             h(React.Fragment,null,h('div',{className:'mc-video-surface mc-idle'},poster&&h('img',{src:poster,alt:''}),h('div',null,h('span',{className:'mc-idle-glyph','aria-hidden':true},'▷'),
-              h('strong',null,doc.clips.length?'Ready when you are':'Your compilation starts here'),h('p',null,doc.clips.length?'Play the full sequence, or double-click a timeline clip to start there.':'Add markers to build a timeline of your favourite moments.'),
+              h('strong',null,doc.clips.length?'Ready when you are':'Your compilation starts here'),h('p',null,doc.clips.length?'Play the full sequence, or double-click a timeline clip to edit it.':'Add markers to build a timeline of your favourite moments.'),
               !!doc.clips.length&&button('Play compilation',()=>perform(()=>play(0)),busy,{className:'mc-primary'}))),
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause')))),
           view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
-        view==='editor'&&h('div',{className:'mc-edit-sidebar'},
-          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))})}),
-          h(MediaCatalog,{media,clips:doc.clips,busy,onInsert:insertMedia,onDrop:(key,x,y)=>dropMediaRef.current?.(key,x,y)}))),
-      view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
+        view==='editor'&&inspectorOpen&&clip&&h('div',{className:'mc-edit-sidebar'},
+          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))})}))),
+      view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
       modal==='markers'&&dialog('Add markers to project',h(React.Fragment,null,
