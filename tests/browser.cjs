@@ -23,7 +23,14 @@ const assert=require('node:assert/strict');
     await button('Add Long interval').click();
     await page.getByRole('searchbox',{name:'Search markers',exact:true}).fill('');
     await button('Add Closing clip').click();
+    assert.equal(await button('In project: Long interval').isEnabled(),false);
     await button('Done').click();
+    assert.equal(await page.locator('.mc-timeline-clip').count(),0);
+    await button('Insert Long interval').click();await button('Insert Closing clip').click();
+    await button('Remove clip').click();
+    assert.equal(await button('Insert Closing clip').count(),1,'Removing a clip keeps its project media');
+    await button('Insert Closing clip').click();
+    assert.equal(await page.locator('video:visible').count(),1,'Trim uses the single main viewport');
     await field('Compilation name').fill(project);
     const clips=page.locator('.mc-timeline-clip');
     await clips.first().click();
@@ -61,7 +68,7 @@ const assert=require('node:assert/strict');
     await page.getByText('Full-duration clips are ready.',{exact:true}).last().waitFor({timeout:30000});
     await button('Done').click();
     for(const mode of ['cache','source']) {
-      await combo('Playback mode').selectOption(mode);await button('Play compilation').click();
+      await button('Compilation').click();await combo('Playback mode').selectOption(mode);await button('Play compilation').click();
       const observed=[];
       for(let pass=1;pass<=9;pass++) {
         await page.getByText(new RegExp('^Pass '+pass+' / 9 ·')).waitFor({timeout:6000});

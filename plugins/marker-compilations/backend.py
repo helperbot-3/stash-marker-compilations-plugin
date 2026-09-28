@@ -53,17 +53,13 @@ def number(value, label):
     return result
 
 
-def validate(document):
-    if not isinstance(document, dict):
-        raise ValueError('Invalid compilation')
-    name = str(document.get('name', '')).strip()
-    if not name or len(name) > 200:
-        raise ValueError('Give the compilation a name of 1–200 characters')
-    clips = document.get('clips', [])
+def validate_clips(clips):
     if not isinstance(clips, list) or len(clips) > 2000:
-        raise ValueError('A compilation supports up to 2000 clips')
+        raise ValueError('A compilation supports up to 2000 clips and 2000 catalog markers')
     clean = []
     for clip in clips:
+        if not isinstance(clip, dict):
+            raise ValueError("Invalid clip")
         start, end = number(clip.get('start'), 'Start'), number(clip.get('end'), 'End')
         if start < 0 or end <= start:
             raise ValueError('Each clip needs an end later than its non-negative start')
@@ -83,10 +79,36 @@ def validate(document):
             clean_phases.append({'repeat': int(repeat), 'speed': speed})
         clean.append({'scene_id': scene_id, 'marker_id': str(clip.get('marker_id', '')),
                       'title': str(clip.get('title', ''))[:300], 'start': start, 'end': end, 'phases': clean_phases})
+    return clean
+
+
+def media_key(clip):
+    return (clip['scene_id'], clip.get('marker_id') or (clip['start'], clip['end']))
+
+
+def project_media(document):
+    # Older projects derive their catalog from the saved timeline without changing it.
+    items = {}
+    for clip in document.get('media', []) + document.get('clips', []):
+        items.setdefault(media_key(clip), clip)
+    return list(items.values())
+
+
+def validate(document):
+    if not isinstance(document, dict):
+        raise ValueError('Invalid compilation')
+    name = str(document.get('name', '')).strip()
+    if not name or len(name) > 200:
+        raise ValueError('Give the compilation a name of 1–200 characters')
+    clean = validate_clips(document.get('clips', []))
+    media = validate_clips(document.get('media', []))
+    media = project_media({'media': media, 'clips': clean})
+    if len(media) > 2000:
+        raise ValueError('A project supports up to 2000 catalog markers')
     width = document.get('width', 1280)
     if width not in (640, 1280, 1920):
         raise ValueError('Choose 640, 1280 or 1920 pixel clip width')
-    return {'name': name, 'clips': clean, 'width': width, 'audio': bool(document.get('audio', True))}
+    return {'name': name, 'clips': clean, 'media': media, 'width': width, 'audio': bool(document.get('audio', True))}
 
 
 class Store:
@@ -96,7 +118,10 @@ class Store:
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
 
     def list(self):
-        return [dict(json.loads(doc), id=id_, revision=revision) for id_, revision, doc in self.db.execute('SELECT id, revision, document FROM compilations ORDER BY rowid DESC')]
+        documents = [dict(json.loads(doc), id=id_, revision=revision) for id_, revision, doc in self.db.execute('SELECT id, revision, document FROM compilations ORDER BY rowid DESC')]
+        for document in documents:
+            document['media'] = project_media(document)
+        return documents
 
     def get(self, id_):
         for doc in self.list():

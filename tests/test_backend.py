@@ -35,6 +35,27 @@ class BackendTests(unittest.TestCase):
             store.db.close()
             other.db.close()
 
+    def test_catalog_migration_and_independent_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            legacy = document()
+            store.db.execute('INSERT INTO compilations VALUES (?,1,?)', ('legacy', json.dumps(legacy)))
+            store.db.commit()
+            migrated = store.get('legacy')
+            self.assertEqual(migrated['clips'], legacy['clips'])
+            self.assertEqual(len(migrated['media']), 1)
+            empty = store.save(dict(migrated, clips=[]))
+            self.assertEqual(len(empty['media']), 1)
+            self.assertEqual(empty['clips'], [])
+            inserted = dict(empty['media'][0], start=2, end=3)
+            saved = store.save(dict(empty, clips=[inserted, inserted]))
+            self.assertEqual(len(saved['media']), 1)
+            self.assertEqual(saved['media'][0]['start'], 1.25)
+            self.assertEqual(len(store.get('legacy')['clips']), 2)
+            store.db.close()
+        with self.assertRaises(ValueError):
+            b.validate(document(media=[{'scene_id': '1', 'start': 4, 'end': 2}]))
+
     def test_invalid_intervals_and_settings(self):
         for start, end in [(-1, 2), (2, 2), (3, 2), (float('nan'), 4), (0, float('inf')), ('', 3), (False, 2)]:
             with self.subTest(start=start, end=end), self.assertRaises(ValueError):

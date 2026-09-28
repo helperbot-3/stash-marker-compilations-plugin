@@ -40,13 +40,21 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    search by name, and play it in the large viewport. Use **Edit compilation** to
    edit the selection, or **New compilation** to start a new one.
    The main navigation includes a filmstrip icon. The editor has a compact two-column
-   inspector with inline trimming and no internal vertical scrollbars. Clip actions,
+   inspector with trim controls and no internal vertical scrollbars. Clip actions,
    position, zoom and preparation controls live above the timeline.
 2. In the nested **editor**, use the single **+ Add markers** button to browse and filter
-   markers by search/tag. Add clips, then click **Done**.
+   markers by search/tag. **In project** marks those already imported. Add markers,
+   then click **Done**. This collects media without changing the timeline.
+   **Project media** keeps these markers independently of timeline positions. Drag
+   a card onto the timeline to insert before/after the nearest clip, or use **Insert**
+   to add it after the selection. Each insertion has independent trim/pattern settings.
+   Removing a timeline clip keeps its catalog entry. Existing projects automatically
+   seed their catalog from saved timeline clips; their timeline stays unchanged.
 3. Click a timeline clip to open the compact two-column **Inspector**. The left
-   column has the source preview, scrubber, 1 / 0.1 / 0.01-second steps, and start/end
-   fields. Use the arrow next to a boundary to jump there, or **Set** to use the
+   column has the scrubber, 1 / 0.1 / 0.01-second steps, and start/end
+   fields. The main viewport switches to **Trim selected clip** when selecting a
+   timeline clip or using a trim control. **Compilation** switches it back; only
+   one video is visible. Use the arrow next to a boundary to jump there, or **Set** to use the
    current preview position. **Play range** previews just the interval. Changes
    apply directly to the compilation clip; the original Stash marker is unchanged.
    Times accept `m:ss`, `h:mm:ss`, and fractional seconds. Steps seek by time;
@@ -68,7 +76,9 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    **Fullscreen** expands the main viewport and playback controls.
 
 The Inspector's **Repeat & speed** phases each have a repeat count and speed.
-Choose **3 normal → 2 slow → 3 normal**, the 2/2/2 preset, or your own phases.
+Choose from 11 presets: normal playback; 3×/5× repeats; half/quarter speed;
+normal → half-speed or the reverse; 3/2/3 and 2/2/2 patterns; progressive slowdown;
+and slowdown followed by a return to normal. Every preset remains editable.
 **Apply to all clips** copies the selected pattern while retaining
 individual source trims. Options in the marker browser set defaults for new clips.
 

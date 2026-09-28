@@ -3,8 +3,22 @@
   const presets = {
     once: [{repeat:1,speed:1}],
     '3-2-3': [{repeat:3,speed:1},{repeat:2,speed:0.5},{repeat:3,speed:1}],
-    '2-2-2': [{repeat:2,speed:1},{repeat:2,speed:0.5},{repeat:2,speed:1}]
+    '2-2-2': [{repeat:2,speed:1},{repeat:2,speed:0.5},{repeat:2,speed:1}],
+    'repeat-3': [{repeat:3,speed:1}],
+    'repeat-5': [{repeat:5,speed:1}],
+    'half-speed': [{repeat:1,speed:.5}],
+    'quarter-speed': [{repeat:1,speed:.25}],
+    'normal-slow': [{repeat:1,speed:1},{repeat:1,speed:.5}],
+    'slow-normal': [{repeat:1,speed:.5},{repeat:1,speed:1}],
+    'progressive': [{repeat:1,speed:1},{repeat:1,speed:.75},{repeat:1,speed:.5},{repeat:1,speed:.25}],
+    'slow-return': [{repeat:1,speed:1},{repeat:1,speed:.5},{repeat:1,speed:.25},{repeat:1,speed:.5},{repeat:1,speed:1}]
   };
+  const presetLabels={once:'Once · normal', '3-2-3':'3 normal → 2 half-speed → 3 normal', '2-2-2':'2 normal → 2 half-speed → 2 normal',
+    'repeat-3':'Repeat 3× · normal', 'repeat-5':'Repeat 5× · normal', 'half-speed':'Once · half-speed', 'quarter-speed':'Once · quarter-speed',
+    'normal-slow':'Normal → half-speed', 'slow-normal':'Half-speed → normal', 'progressive':'Slow down · 1× → ¾× → ½× → ¼×', 'slow-return':'Slow down & return · 1× → ¼× → 1×'};
+  function mediaKey(c){return String(c.scene_id)+':'+(c.marker_id?'marker:'+c.marker_id:'range:'+c.start+':'+c.end);}
+  function catalog(document){const items=new Map();for(const c of [...(document.media||[]),...(document.clips||[])])if(!items.has(mediaKey(c)))items.set(mediaKey(c),copyClip(c));return [...items.values()];}
+  function insertClip(clips,clip,index){const result=clips.slice();result.splice(Math.max(0,Math.min(index,result.length)),0,copyClip(clip));return result;}
   function phases(clip) { return clip.phases || presets.once; }
   function duration(clip) {
     return Math.max(0,clip.end-clip.start)*phases(clip).reduce((total,p)=>total+(Number(p.repeat)||0)/(Number(p.speed)||1),0);
@@ -66,7 +80,7 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={presets,presetLabels,mediaKey,catalog,insertClip,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

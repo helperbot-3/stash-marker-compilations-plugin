@@ -54,3 +54,23 @@ test('clipboard round trip preserves independent trims and speed phases without 
   assert.equal(patterns.decodeClip(encoded).phases[0].repeat,3);
   for(const value of ['hello','{}','null',encoded.replace('"end":3.5','"end":0'),encoded.replace('"speed":0.5','"speed":999'),encoded.replace('"version":1','"version":2')])assert.equal(patterns.decodeClip(value),null);
 });
+
+test('catalog preserves imported media independently of timeline instances',()=>{
+  const clip={scene_id:'1',marker_id:'7',title:'Original',start:1,end:4};
+  const media=patterns.catalog({clips:[clip,{...clip,start:2}]});
+  assert.equal(media.length,1);
+  assert.equal(patterns.catalog({media,clips:[]}).length,1);
+  const timeline=patterns.insertClip([],media[0],0);
+  timeline[0].phases[0].repeat=5;timeline[0].start=2;
+  assert.equal(media[0].start,1);assert.equal(media[0].phases[0].repeat,1);
+  assert.equal(patterns.insertClip(timeline,media[0],1).length,2);
+});
+
+test('all labeled presets expand into supported positive-duration sequences',()=>{
+  assert.equal(Object.keys(patterns.presets).length,Object.keys(patterns.presetLabels).length);
+  for(const phases of Object.values(patterns.presets)){
+    assert.ok(phases.length<=10);
+    for(const phase of phases){assert.ok(Number.isInteger(phase.repeat)&&phase.repeat>=1&&phase.repeat<=20);assert.ok([.25,.5,.75,1,1.25,1.5,2,3].includes(phase.speed));}
+    assert.ok(patterns.duration({start:1,end:2,phases})>0);
+  }
+});
