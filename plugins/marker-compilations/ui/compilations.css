@@ -121,3 +121,13 @@
 .mc-editor .mc-edit-sidebar{order:5}
 .mc-media-sidebar .mc-catalog-items{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* Compact media rows: a marker still, title/duration, and one insert action. */
+.mc-media-sidebar .mc-media-item{display:grid;grid-template-columns:64px minmax(0,1fr) 22px;align-items:center;gap:6px;padding:4px}
+.mc-media-thumb{position:relative;display:flex;align-items:center;justify-content:center;width:64px;height:40px;overflow:hidden;border-radius:3px;background:#111a20;color:var(--mc-muted);font-size:20px}
+.mc-media-thumb img{width:100%;height:100%;object-fit:cover;pointer-events:none}
+.mc-media-uses{position:absolute;right:2px;bottom:2px;padding:1px 3px;border-radius:2px;background:#101820dd;color:var(--mc-accent);font:9px ui-monospace,monospace}
+.mc-media-details{display:flex;flex-direction:column;min-width:0;gap:3px}
+.mc-media-details small{font-variant-numeric:tabular-nums;font-size:9px}
+.mc-media-sidebar .mc-media-item button{align-self:center;width:22px;height:26px;padding:0;font-size:16px;background:transparent;border-color:transparent}
+@media(max-width:700px){.mc-media-sidebar .mc-catalog-items{grid-template-columns:minmax(0,1fr)}}

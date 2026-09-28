@@ -46,8 +46,10 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    markers by search/tag. **In project** marks those already imported. Add markers,
    then click **Done**. This collects media without changing the timeline.
    **Project media** lives in a collapsible left sidebar and keeps these markers independently of timeline positions. Drag
-   a card onto the timeline to insert before/after the nearest clip, or use **Insert**
-   to add it after the selection. Each insertion has independent trim/pattern settings.
+   a compact thumbnail row onto the timeline to insert before/after the nearest clip, or use **Insert**
+   to add it after the selection. Marker stills are loaded from Stash, including for
+   existing projects; unavailable stills show a placeholder. A thumbnail badge shows
+   how often the marker appears on the timeline. Each insertion has independent trim/pattern settings.
    Removing a timeline clip keeps its catalog entry. Existing projects automatically
    seed their catalog from saved timeline clips; their timeline stays unchanged.
 3. Single-click to select a timeline clip. Double-click (or press **Enter** on it) to open the compact two-column **Inspector**. The left
