@@ -202,7 +202,7 @@ def frame_window(file, position, ffprobe):
         if result.returncode:
             raise ValueError('Could not read source frames: ' + result.stderr[-500:])
         return json.loads(result.stdout)
-    metadata = probe(['-show_entries', 'stream=avg_frame_rate,r_frame_rate,time_base:format=start_time'])
+    metadata = probe(['-show_entries', 'stream=codec_name,field_order,avg_frame_rate,r_frame_rate,time_base:format=start_time,format_name'])
     streams = metadata['streams']
     if not streams:
         raise ValueError('No video frames in this source')
@@ -220,16 +220,34 @@ def frame_window(file, position, ffprobe):
     origin = float(metadata.get('format', {}).get('start_time', 0))
     radius = max(2, 12 / rate)
     lower, upper = max(0, position-radius), min(duration, position+radius)
-    data = probe(['-read_intervals', '{}%{}'.format(lower+origin, upper+origin),
-                  '-show_entries', 'frame=best_effort_timestamp,best_effort_timestamp_time'])
+    interval = ['-read_intervals', '{}%{}'.format(lower+origin, upper+origin)]
     time_base = Fraction(stream.get('time_base', '1/1000000'))
-    times = sorted(set((float(int(frame['best_effort_timestamp']) * time_base) if 'best_effort_timestamp' in frame
-                        else float(frame['best_effort_timestamp_time'])) - origin
-                       for frame in data.get('frames', []) if 'best_effort_timestamp' in frame or 'best_effort_timestamp_time' in frame))
+    times = []
+    timestamp_source = 'decoded_frames'
+    # Progressive AVC/HEVC samples in MP4/MOV and Matroska carry presentation
+    # timestamps per picture. Read these without reconstructing pixels. Sort by
+    # PTS (not DTS) to retain display order for B-frames and variable-rate video.
+    formats = set(metadata.get('format', {}).get('format_name', '').split(','))
+    packet_safe = (stream.get('codec_name') in ('h264', 'hevc')
+                   and stream.get('field_order') == 'progressive'
+                   and bool(formats & {'mov', 'mp4', 'matroska'}))
+    if packet_safe:
+        data = probe(interval + ['-show_entries', 'packet=pts,flags'])
+        packets = [p for p in data.get('packets', []) if 'D' not in p.get('flags', '')]
+        if packets and all('pts' in p for p in packets):
+            values = [float(int(p['pts']) * time_base) - origin for p in packets]
+            if len(values) == len(set(values)):
+                times = sorted(values)
+                timestamp_source = 'packet_pts'
+    if not times:
+        data = probe(interval + ['-show_entries', 'frame=best_effort_timestamp,best_effort_timestamp_time'])
+        times = sorted(set((float(int(frame['best_effort_timestamp']) * time_base) if 'best_effort_timestamp' in frame
+                            else float(frame['best_effort_timestamp_time'])) - origin
+                           for frame in data.get('frames', []) if 'best_effort_timestamp' in frame or 'best_effort_timestamp_time' in frame))
     times = [t for t in times if 0 <= t < duration]
     if not times:
         raise ValueError('No frame timestamps are available near this position')
-    return {'times': times, 'fps': rate, 'at_start': lower == 0, 'at_end': upper == duration}
+    return {'times': times, 'fps': rate, 'at_start': lower == 0, 'at_end': upper == duration, 'timestamp_source': timestamp_source}
 
 
 def run(payload):

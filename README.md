@@ -64,7 +64,9 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    the frame field), using the source rate and non-drop-frame numbering. Old `m:ss`
    and `h:mm:ss` inputs with fractional seconds remain accepted. Merely focusing a
    field does not round or change existing trims. Frame steps read actual source
-   presentation timestamps through Stash's configured FFprobe, including unevenly
+   presentation timestamps through Stash's configured FFprobe. Progressive H.264/H.265
+   in MP4/MOV/Matroska use packet presentation timestamps without decoding the video;
+   other formats or incomplete timestamps fall back to decoded frames, including unevenly
    spaced frames, and prepare a nearby window after seeking for quick repeated steps. Recent windows
    are reused for two minutes while the editor remains open, including when reopening
    an inspector. The trim player preloads video; cold backward seeks can still take

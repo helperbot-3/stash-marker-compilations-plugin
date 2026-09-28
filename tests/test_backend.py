@@ -89,6 +89,7 @@ class BackendTests(unittest.TestCase):
                 fps = float(b.Fraction(rate))
                 self.assertAlmostEqual(result['fps'], fps, places=5)
                 self.assertTrue(result['at_start'])
+                self.assertEqual(result['timestamp_source'], 'packet_pts')
                 self.assertAlmostEqual(result['times'][1]-result['times'][0], 1/fps, places=5)
                 self.assertGreater(result['times'][-1], 2)
                 with self.assertRaises(ValueError):
@@ -99,6 +100,29 @@ class BackendTests(unittest.TestCase):
             differences = {round(b-a, 2) for a, b in zip(result['times'], result['times'][1:])}
             self.assertIn(.04, differences)
             self.assertIn(.08, differences)
+            reference = json.loads(subprocess.check_output(['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+                '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', str(source)]))
+            self.assertEqual(result['timestamp_source'], 'packet_pts')
+            self.assertEqual([round(t, 5) for t in result['times']],
+                             [round(float(f['best_effort_timestamp_time']), 5) for f in reference['frames']])
+
+
+    def test_fast_frame_timestamps_match_decoded_frames(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for extension, codec in [('mp4', 'libx264'), ('mkv', 'libx264'), ('mp4', 'mpeg4')]:
+                source = Path(directory) / ('sample-' + codec + '.' + extension)
+                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                'testsrc2=s=160x90:r=30000/1001:d=5', '-c:v', codec,
+                                '-bf', '2', str(source)], check=True)
+                result = b.frame_window({'path': str(source), 'duration': 5}, 2, 'ffprobe')
+                decoded = json.loads(subprocess.check_output([
+                    'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-read_intervals', '0%4',
+                    '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', str(source)]))
+                reference = sorted(float(f['best_effort_timestamp_time']) for f in decoded['frames'])
+                self.assertEqual(result['timestamp_source'], 'packet_pts' if codec == 'libx264' else 'decoded_frames')
+                self.assertEqual(len(result['times']), len(reference))
+                for actual, expected in zip(result['times'], reference):
+                    self.assertAlmostEqual(actual, expected, places=5)
 
     def test_cancelled_parent_stops_encoder_and_removes_partial_clip(self):
         with tempfile.TemporaryDirectory() as directory:
