@@ -116,7 +116,8 @@ and slowdown followed by a return to normal. Every preset remains editable.
 Use **Save / manage patterns** in the inspector to save the current sequence as a
 named custom pattern. The dialog lets you select an existing pattern, change its
 name, repeat counts or speeds, add/remove phases, update it, make a copy, or
-delete it. Saved patterns appear in both preset menus and persist in Stash across
+delete it. **Save as new** immediately saves a separate copy of the edited sequence,
+using an unused name without changing the original. Saved patterns appear in both preset menus and persist in Stash across
 browser sessions and compilations. Applying a pattern copies its phases; updating
 or deleting the saved pattern does not alter clips that already use it. Clip trims
 and hot zones are never included in a saved repetition pattern.

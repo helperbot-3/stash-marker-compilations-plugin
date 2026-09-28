@@ -303,7 +303,13 @@
     const fresh=()=>({name:'',phases:initial.map(p=>({...p}))});
     const [draft,setDraft]=useState(fresh), [working,setWorking]=useState(false), [error,setError]=useState('');
     const patch=update=>{setDraft(d=>({...d,...update}));setError('');};
-    async function save(){setWorking(true);setError('');try{setDraft(await onSave(draft));}catch(e){setError(e.message);}finally{setWorking(false);}}
+    async function save(value=draft){setWorking(true);setError('');try{setDraft(await onSave(value));}catch(e){setError(e.message);}finally{setWorking(false);}}
+    function saveAsNew(){
+      const names=new Set(items.map(p=>p.name.trim().toLowerCase()));
+      let name=draft.name.trim(), n=1;
+      while(names.has(name.toLowerCase())){const suffix=' copy'+(n===1?'':' '+n);name=draft.name.trim().slice(0,100-suffix.length)+suffix;n++;}
+      return save({name,phases:draft.phases.map(p=>({...p}))});
+    }
     async function remove(){setWorking(true);setError('');try{await onDelete(draft);setDraft(fresh());}catch(e){setError(e.message);}finally{setWorking(false);}}
     return h('section',{'aria-label':'Custom repetition patterns',className:'mc-pattern-manager'},
       h(Field,{label:'Saved pattern'},h('select',{value:draft.id||'',disabled:working,onChange:e=>{const item=items.find(p=>p.id===e.target.value);setDraft(item?{...item,phases:item.phases.map(p=>({...p}))}:fresh());setError('');}},
@@ -316,8 +322,8 @@
         button('×',()=>patch({phases:draft.phases.filter((_,i)=>i!==index)}),working||draft.phases.length===1,{'aria-label':'Remove pattern phase '+(index+1)}))),
       h('div',{className:'mc-inline'},
         button('+ Phase',()=>patch({phases:draft.phases.concat({repeat:1,speed:1})}),working||draft.phases.length>=10),
-        button(draft.id?'Update pattern':'Save pattern',save,working||!draft.name.trim(),{className:'mc-primary'}),
-        draft.id&&button('Save as new',()=>patch({id:undefined,revision:undefined,name:draft.name+' copy'}),working),
+        button(draft.id?'Update pattern':'Save pattern',()=>save(),working||!draft.name.trim(),{className:'mc-primary'}),
+        draft.id&&button('Save as new',saveAsNew,working||!draft.name.trim()),
         draft.id&&button('Delete pattern',remove,working)),
       h('p',{className:'mc-pattern-note'},'Patterns are shared across compilations. Applying one copies its sequence; later changes do not alter existing clips or their hot zones.'),
       error&&h('p',{role:'alert'},error));
