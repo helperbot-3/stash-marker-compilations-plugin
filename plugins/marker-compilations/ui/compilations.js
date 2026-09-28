@@ -191,10 +191,10 @@
       finally{if(id===frameRequest.current)setFrameBusy(false);}
     }
     useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;};},[clip.scene_id]);
-    async function stepFrames(direction){
-      const v=video.current;if(!v||!ready||frameBusy||seeking)return;
+    async function stepFrames(direction,amount=step){
+      const v=video.current;if(!v||!ready||busy||frameBusy||seeking||v.seeking)return;
       onBeforePlay();v.pause();limit.current=null;
-      const point=v.currentTime, count=direction*step;
+      const point=v.currentTime, count=direction*amount;
       let next=patterns.frameStep(frameData.current,point,count);
       if(next===null){const data=await loadFrames(point);if(!data)return;next=patterns.frameStep(data,point,count);}
       if(next!==null)seek(next,true);
@@ -234,7 +234,12 @@
       setPosition(point);onChange({[which]:point});
     }
     const valid=ready&&start>=0&&end>start&&end<=duration;
-    useEffect(()=>{controls.current={pause:()=>video.current?.pause()};return()=>{controls.current=null;};});
+    useEffect(()=>{controls.current={
+      pause:()=>video.current?.pause(),
+      toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
+      frame:direction=>stepFrames(direction,1),
+      second:direction=>{const v=video.current;if(v&&ready&&!busy&&!frameBusy&&!seeking&&!v.seeking)seek(v.currentTime+direction);}
+    };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
       h('h3',null,'Trim',h('span',{className:'mc-fps',title:'Source frame rate. HH:MM:SS:FF non-drop-frame timecode.'},fps?Number(fps.toFixed(3))+' fps':'Reading frame rate…')),
       target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'metadata',playsInline:true,controls:true,onLoadedMetadata:loaded,
@@ -458,11 +463,19 @@
       function hotkey(e){
         if(e.key==='Escape'&&!modal&&inspectorOpen){e.preventDefault();e.stopImmediatePropagation();closeInspector();return;}
         if((e.key==='Delete'||e.key==='Backspace')&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&clipShortcutTarget(e.target)&&clip){e.preventDefault();e.stopPropagation();if(!e.repeat)removeClip();return;}
-        if((e.code!=='Space'&&e.key!==' ')||e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||modal)return;
+        if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||modal)return;
+        if(inspectorOpen&&clip&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+          if(e.target instanceof Element&&(e.target.closest('input:not([type="range"]),textarea,select,[role="textbox"]')||e.target.isContentEditable))return;
+          e.preventDefault();e.stopImmediatePropagation();
+          if(e.key==='ArrowLeft'||e.key==='ArrowRight')trimControls.current?.frame(e.key==='ArrowLeft'?-1:1);
+          else trimControls.current?.second(e.key==='ArrowUp'?-1:1);
+          return;
+        }
+        if(e.code!=='Space'&&e.key!==' ')return;
         const target=e.target;
         if(target instanceof Element&&(target.closest('textarea,input[type="text"],input[type="search"],input:not([type]),[role="textbox"]')||target.isContentEditable))return;
         e.preventDefault();e.stopImmediatePropagation();spaceCaptured.current=true;
-        if(!e.repeat)toggleTimeline();
+        if(!e.repeat){if(inspectorOpen&&clip)trimControls.current?.toggle();else toggleTimeline();}
       }
       function release(e){if((e.code==='Space'||e.key===' ')&&spaceCaptured.current){e.preventDefault();e.stopImmediatePropagation();spaceCaptured.current=false;}}
       function blur(){spaceCaptured.current=false;}

@@ -76,7 +76,12 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    Paste inserts after the selection, or at the end of an empty/unselected timeline.
    **Delete / Backspace** removes the selected clip. Clipboard shortcuts also work
    between compilation editors; ordinary text editing and other pasted text are untouched.
-5. **Space** plays or pauses the compilation timeline in both views. It leaves text
+5. **Space** plays or pauses the inspected source preview while the inspector is open,
+   and the compilation timeline otherwise. In the inspector, **Left / Right** step
+   exactly one source frame (regardless of the step dropdown); **Up / Down** seek
+   backward / forward one second. Seeking pauses the preview and leaves trim boundaries
+   unchanged. Arrow keys keep their normal behavior in editable fields and dropdowns.
+   Space leaves text
    typing fields and dialogs alone. Focused buttons, dropdowns, numeric controls,
    and sliders do not consume Space or activate their normal action. Starting timeline playback pauses the source
    trim preview, and starting the source preview stops timeline playback.
