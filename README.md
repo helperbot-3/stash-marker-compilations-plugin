@@ -65,7 +65,10 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    and `h:mm:ss` inputs with fractional seconds remain accepted. Merely focusing a
    field does not round or change existing trims. Frame steps read actual source
    presentation timestamps through Stash's configured FFprobe, including unevenly
-   spaced frames, and reuse a nearby window for quick repeated steps. **Set** snaps
+   spaced frames, and prepare a nearby window after seeking for quick repeated steps. Recent windows
+   are reused for two minutes while the editor remains open, including when reopening
+   an inspector. The trim player preloads video; cold backward seeks can still take
+   longer when the browser needs to fetch and decode an earlier keyframe. **Set** snaps
    to a source frame boundary; the end boundary remains exclusive. For variable-rate
    video, timecode is a nominal source-rate reference rather than a unique frame
    index; stepping still uses actual frame timestamps. Transcoded playback can

@@ -166,13 +166,13 @@
         total>0&&h('div',{className:'mc-playhead',style:{left:Math.min(current,total)*scale},'aria-hidden':true},h('span',null)))));
   }
 
-  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target}) {
+  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target,frameCache}) {
     const client=useApolloClient(), video=useRef(null), pending=useRef(clip.start), limit=useRef(null);
     const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
     const start=clip.start, end=clip.end;
     const [position,setPosition]=useState(clip.start);
     const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
-    const frameData=useRef(null), frameRequest=useRef(0);
+    const frameData=useRef(null), frameRequest=useRef(0), warming=useRef(null), framePending=useRef(null);
     const [step,setStep]=useState(1), [playing,setPlaying]=useState(false), [ready,setReady]=useState(false), [seeking,setSeeking]=useState(true), [error,setError]=useState('');
     useEffect(()=>{
       let disposed=false;
@@ -181,16 +181,39 @@
         .catch(e=>{if(!disposed)setError(e.message);});
       return()=>{disposed=true;};
     },[clip.scene_id]);
-    async function loadFrames(position){
-      const id=++frameRequest.current;setFrameBusy(true);setFrameError('');
-      try{
-        const r=await client.mutate({mutation:OP,variables:{args:{action:'frames',scene_id:clip.scene_id,position}}});
-        if(id!==frameRequest.current)return null;
-        const data=r.data.runPluginOperation;frameData.current=data;setFps(patterns.frameRate(data.fps));return data;
-      }catch(e){if(id===frameRequest.current)setFrameError('Frame stepping unavailable: '+e.message);return null;}
-      finally{if(id===frameRequest.current)setFrameBusy(false);}
+    function cachedFrames(position){
+      return frameCache.current.find(item=>item.scene===clip.scene_id&&Date.now()-item.loaded<120000&&
+        patterns.frameStep(item.data,position,-10)!==null&&patterns.frameStep(item.data,position,10)!==null)?.data;
     }
-    useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;};},[clip.scene_id]);
+    async function loadFrames(position){
+      const cached=cachedFrames(position);
+      if(cached){frameData.current=cached;setFps(patterns.frameRate(cached.fps));return cached;}
+      // A click can reuse a warm-up already in flight instead of starting a second probe.
+      if(framePending.current){
+        const generation=frameRequest.current;
+        try{await framePending.current;}catch{return null;}
+        if(generation!==frameRequest.current)return null;
+        const ready=cachedFrames(position);
+        if(ready){frameData.current=ready;setFps(patterns.frameRate(ready.fps));return ready;}
+      }
+      const id=++frameRequest.current;setFrameBusy(true);setFrameError('');
+      const pending=client.mutate({mutation:OP,variables:{args:{action:'frames',scene_id:clip.scene_id,position}}});
+      framePending.current=pending;
+      try{
+        const r=await pending;
+        if(id!==frameRequest.current)return null;
+        const data=r.data.runPluginOperation;frameData.current=data;setFps(patterns.frameRate(data.fps));
+        frameCache.current=[{scene:clip.scene_id,loaded:Date.now(),data},...frameCache.current].slice(0,12);
+        return data;
+      }catch(e){if(id===frameRequest.current)setFrameError('Frame stepping unavailable: '+e.message);return null;}
+      finally{if(framePending.current===pending)framePending.current=null;if(id===frameRequest.current)setFrameBusy(false);}
+    }
+    function warmFrames(position){
+      clearTimeout(warming.current);
+      if(patterns.frameStep(frameData.current,position,-10)!==null&&patterns.frameStep(frameData.current,position,10)!==null)return;
+      warming.current=setTimeout(()=>{loadFrames(position);},150);
+    }
+    useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;clearTimeout(warming.current);};},[clip.scene_id]);
     async function stepFrames(direction,amount=step){
       const v=video.current;if(!v||!ready||busy||frameBusy||seeking||v.seeking)return;
       onBeforePlay();v.pause();limit.current=null;
@@ -242,8 +265,8 @@
     };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
       h('h3',null,'Trim',h('span',{className:'mc-fps',title:'Source frame rate. HH:MM:SS:FF non-drop-frame timecode.'},fps?Number(fps.toFixed(3))+' fps':'Reading frame rate…')),
-      target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'metadata',playsInline:true,controls:true,onLoadedMetadata:loaded,
-        onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();},
+      target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'auto',playsInline:true,controls:true,onLoadedMetadata:loaded,
+        onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();warmFrames(video.current.currentTime);},
         onError:()=>{setReady(false);setError('Source unavailable. Try another stream.');}})),target),
       error&&h('p',{role:'alert'},error),
       h('div',{className:'mc-trim-controls'},
@@ -264,14 +287,14 @@
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
   }
 
-  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose}) {
+  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose,frameCache}) {
     if(!clip)return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector')),h('div',{className:'mc-inspector-empty'},'Select a timeline clip to edit.'));
     const phases=patterns.phases(clip);
     const patchPhase=(n,patch)=>onChange({phases:phases.map((p,j)=>j===n?{...p,...patch}:p)});
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
       h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
       h('div',{className:'mc-inspector-columns'},
-        h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget}),
+        h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget,frameCache}),
         h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('h3',null,'Repeat & speed'),
           h('select',{'aria-label':'Apply a preset',value:'',disabled:busy,onChange:e=>{if(e.target.value)onChange({phases:patterns.presets[e.target.value].map(p=>({...p}))});}},
             h('option',{value:''},'Preset…'),presetOptions()),
@@ -327,7 +350,7 @@
     const [documents,setDocuments]=useState([]), [doc,setDoc]=useState(blank), [dirty,setDirty]=useState(false);
     const [trimSession,setTrimSession]=useState(0);
     const [inspectorOpen,setInspectorOpen]=useState(false), [mediaCollapsed,setMediaCollapsed]=useState(false);
-    const spaceCaptured=useRef(false);
+    const spaceCaptured=useRef(false), frameCache=useRef([]);
     const [preview,setPreview]=useState('compilation'), [trimTarget,setTrimTarget]=useState(null);
     const [selected,setSelected]=useState(null), [active,setActive]=useState(null), [current,setCurrent]=useState(0);
     const [modal,setModal]=useState(null), [mode,setMode]=useState('source'), [poster,setPoster]=useState('');
@@ -540,7 +563,7 @@
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause')))),
           view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
         view==='editor'&&inspectorOpen&&clip&&h('div',{className:'mc-edit-sidebar'},
-          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))})}))),
+          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.phases(clip).map(p=>({...p}))}))})}))),
       view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
