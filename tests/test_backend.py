@@ -56,6 +56,27 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             b.validate(document(media=[{'scene_id': '1', 'start': 4, 'end': 2}]))
 
+    def test_hot_zone_validation_and_persistence(self):
+        clip = dict(document()['clips'][0], hot_zone={'start': 4, 'end': 8})
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            saved = store.save(document(clips=[clip]))
+            self.assertEqual(store.get(saved['id'])['clips'][0]['hot_zone'], {'start': 4, 'end': 8})
+            self.assertEqual(saved['media'][0]['hot_zone'], {'start': 4, 'end': 8})
+            removed = store.save(dict(saved, clips=[dict(clip, hot_zone=None)]))
+            self.assertNotIn('hot_zone', removed['clips'][0])
+            store.db.close()
+            source = Path(directory) / 'source.mp4'
+            source.write_bytes(b'test')
+            file = {'id': '1', 'path': str(source)}
+            self.assertEqual(b.cache_key(clip, file, document()),
+                             b.cache_key(dict(clip, hot_zone={'start': 5, 'end': 7}), file, document()))
+        for zone in [{'start': 0, 'end': 8}, {'start': 4, 'end': 30},
+                     {'start': 8, 'end': 4}, {'start': 4, 'end': 4},
+                     {'start': float('nan'), 'end': 8}, {}, 'invalid']:
+            with self.subTest(zone=zone), self.assertRaises(ValueError):
+                b.validate(document(clips=[dict(clip, hot_zone=zone)]))
+
     def test_invalid_intervals_and_settings(self):
         for start, end in [(-1, 2), (2, 2), (3, 2), (float('nan'), 4), (0, float('inf')), ('', 3), (False, 2)]:
             with self.subTest(start=start, end=end), self.assertRaises(ValueError):

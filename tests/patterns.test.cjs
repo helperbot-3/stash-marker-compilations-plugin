@@ -100,3 +100,41 @@ test('frame stepping uses timestamps, including unequal frame durations and wind
   assert.equal(patterns.frameStep({...window,at_start:false},0,-1),null);
   assert.equal(patterns.frameStep({...window,at_end:false},.2,1),null);
 });
+
+test('hot zone applies only to middle plays across phase boundaries',()=>{
+  const clip={scene_id:'1',start:10,end:20,hot_zone:{start:14,end:16},phases:patterns.presets['3-2-3']};
+  const passes=patterns.expand([clip]);
+  assert.deepEqual(passes.map(p=>[p.start,p.end]),[[10,20],[14,16],[14,16],[14,16],[14,16],[14,16],[14,16],[10,20]]);
+  assert.deepEqual(passes.map(p=>p.speed),[1,1,1,.5,.5,1,1,1]);
+  assert.deepEqual(passes.map(p=>p.cacheOffset),[0,4,4,4,4,4,4,0]);
+  assert.deepEqual(patterns.phaseDurations(clip),[14,8,14]);
+  assert.equal(patterns.duration(clip),36);
+  assert.equal(passes.at(-1).timelineEnd,36);
+  assert.deepEqual(patterns.locate(passes,15),{index:3,offset:.5});
+  assert.equal(patterns.timeline([clip,{start:0,end:2}])[1].start,36);
+  const twice=patterns.expand([clip,clip]);
+  assert.equal(twice[8].isHotZone,false);
+  assert.equal(twice.at(-1).isHotZone,false);
+});
+
+test('one or two plays retain full range, and disabling hot zone restores old timing',()=>{
+  for(const repeats of [1,2]){
+    const clip={start:10,end:20,hot_zone:{start:14,end:16},phases:[{repeat:repeats,speed:.5}]};
+    assert.equal(patterns.duration(clip),20*repeats);
+    assert.ok(patterns.expand([clip]).every(p=>p.start===10&&p.end===20&&!p.isHotZone));
+  }
+  const clip={start:10,end:20,hot_zone:null,phases:patterns.presets['3-2-3']};
+  assert.equal(patterns.duration(clip),100);
+});
+
+test('hot zones survive independent clipboard and catalog copies; invalid zones are rejected',()=>{
+  const clip={scene_id:'1',marker_id:'2',title:'Hot',start:10,end:20,hot_zone:{start:14,end:16},phases:patterns.presets['3-2-3']};
+  const copy=patterns.decodeClip(patterns.encodeClip(clip));
+  assert.deepEqual(copy.hot_zone,clip.hot_zone);
+  copy.hot_zone.start=15;
+  assert.equal(clip.hot_zone.start,14);
+  assert.deepEqual(patterns.catalog({clips:[clip]})[0].hot_zone,clip.hot_zone);
+  for(const zone of [{start:9,end:16},{start:14,end:21},{start:16,end:14},{start:14,end:14},{start:null,end:16}]){
+    assert.equal(patterns.decodeClip(patterns.encodeClip({...clip,hot_zone:zone})),null);
+  }
+});

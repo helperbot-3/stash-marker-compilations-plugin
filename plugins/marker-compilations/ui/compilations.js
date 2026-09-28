@@ -26,7 +26,7 @@
       const seconds=patterns.parseFrameTime(draft,fps);
       if(seconds===null){setDraft(patterns.frameTime(value,fps));setError('Use HH:MM:SS:FF with a valid frame number.');return;}
       setError('');setDraft(patterns.frameTime(seconds,fps));
-      if(seconds!==value)onChange(seconds);
+      if(seconds!==value&&onChange(seconds)===false)setDraft(patterns.frameTime(value,fps));
     }
     return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled:disabled||!fps,onFocus,placeholder:'00:00:00:00',spellCheck:false,
       onChange:e=>{setDraft(e.target.value);setError('');},onBlur:commit,
@@ -44,7 +44,7 @@
     const clip=clips[index], cached=mode==='cache';
     const streams=(clip.streams||[]).filter(s=>!/mpegurl|dash/i.test(s.mime_type||''));
     const url=cached?(clip.cached?new URL('plugin/marker-compilations/assets/cache/'+clip.cached,document.baseURI).href:''):(streams[sourceIndex]||{}).url;
-    const start=cached?0:clip.start, end=cached?clip.end-clip.start:clip.end;
+    const start=cached?(clip.cacheOffset||0):clip.start, end=cached?start+clip.end-clip.start:clip.end;
     function report() {
       if(!video.current)return;
       const offset=Math.max(0,Math.min(video.current.currentTime-start,end-start));
@@ -162,7 +162,7 @@
             onDragStart:e=>{dragIndex.current=entry.index;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(entry.index));},
             onDragOver:e=>{if(dragIndex.current!=null){e.preventDefault();setDropTarget(entry.index);}},onDrop:e=>drop(e,entry.index),onDragEnd:()=>{dragIndex.current=null;setDropTarget(null);}},
             h('span',{className:'mc-clip-number'},String(entry.index+1).padStart(2,'0')),h('strong',null,c.title),h('small',null,time(entry.duration)),
-            h('span',{className:'mc-phase-strip'},patterns.phases(c).map((p,n)=>h('i',{key:n,className:p.speed<1?'is-slow':'',style:{flex:p.repeat/p.speed},title:p.repeat+' × '+p.speed+' speed'}))));})),
+            h('span',{className:'mc-phase-strip'},patterns.phases(c).map((p,n)=>h('i',{key:n,className:p.speed<1?'is-slow':'',style:{flex:patterns.phaseDurations(c)[n]},title:p.repeat+' × '+p.speed+' speed'}))));})),
         total>0&&h('div',{className:'mc-playhead',style:{left:Math.min(current,total)*scale},'aria-hidden':true},h('span',null)))));
   }
 
@@ -242,10 +242,10 @@
       function frame(now,info){if(disposed)return;if(!v.paused)setPosition(info.mediaTime);token=v.requestVideoFrameCallback(frame);}
       token=v.requestVideoFrameCallback(frame);return()=>{disposed=true;v.cancelVideoFrameCallback(token);};
     },[target,stream]);
-    function play(selection){
+    function play(selection,zone=null){
       const v=video.current;if(!v||!ready)return;
-      onBeforePlay();limit.current=selection?end:null;
-      if(selection){v.currentTime=start;setPosition(start);}
+      onBeforePlay();limit.current=selection?(zone?.end??end):null;
+      if(selection){v.currentTime=zone?.start??start;setPosition(zone?.start??start);}
       v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
     }
     async function mark(which){
@@ -254,7 +254,7 @@
       let data=frameData.current, point=patterns.frameStep(data,current,0);
       if(point===null){data=await loadFrames(current);if(!data)return;point=patterns.frameStep(data,current,0);}
       if(point===null)return;
-      setPosition(point);onChange({[which]:point});
+      setPosition(point);onChange(which.startsWith('hot_')?{hot_zone:{...clip.hot_zone,[which.slice(4)]:point}}:{[which]:point});
     }
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
@@ -282,6 +282,15 @@
         button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button('Set',()=>mark('start'),!ready||seeking||busy||frameBusy,{'aria-label':'Set start here'})),
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>onChange({end})}),
         button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'})),
+      h('div',{className:'mc-hot-zone'},
+        h('div',{className:'mc-hot-heading'},h('label',null,h('input',{type:'checkbox',checked:!!clip.hot_zone,disabled:busy,onChange:e=>onChange({hot_zone:e.target.checked?{start,end}:null})}),' Hot zone'),
+          clip.hot_zone&&button('Play zone',()=>play(true,clip.hot_zone),!valid||busy,{'aria-label':'Play hot zone'})),
+        clip.hot_zone&&h(React.Fragment,null,
+          ['start','end'].map(boundary=>h('div',{className:'mc-boundary-row',key:boundary},
+            h(TimeField,{label:'Hot '+boundary,value:clip.hot_zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>onChange({hot_zone:{...clip.hot_zone,[boundary]:value}})}),
+            button('↦',()=>seek(clip.hot_zone[boundary]),!ready||busy,{'aria-label':'Jump to hot zone '+boundary}),
+            button('Set',()=>mark('hot_'+boundary),!ready||seeking||busy||frameBusy,{'aria-label':'Set hot zone '+boundary+' here'}))),
+          h('small',null,'First & last: full clip · Middle plays: hot zone'))),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
@@ -438,7 +447,11 @@
     function inspectClip(index){selectClip(index);showTrim();}
     function closeInspector(){trimControls.current?.pause();setInspectorOpen(false);setPreview('compilation');requestAnimationFrame(()=>document.querySelectorAll('.mc-timeline-clip')[selected]?.focus({preventScroll:true}));}
 
-    function changeClip(patch){edit({clips:doc.clips.map((c,i)=>i===selected?{...c,...patch}:c)});}
+    function changeClip(patch){
+      const updated={...clip,...patch};
+      if(!patterns.validHotZone(updated)){setMessage('Hot zone must have start before end and stay inside the clip range. Adjust or disable it before trimming past it.');return false;}
+      edit({clips:doc.clips.map((c,i)=>i===selected?updated:c)});return true;
+    }
     function removeClip(){
       setTrimSession(n=>n+1);
       if(selected==null||!doc.clips[selected])return;

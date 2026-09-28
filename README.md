@@ -98,6 +98,17 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 7. Select a timeline clip and use **Play clip** to play from it, or seek on the ruler/position slider.
    **Fullscreen** expands the main viewport and playback controls.
 
+Enable **Hot zone** in the inspector to define an optional subrange inside the
+clip's Start/End range. Use the frame time fields, jump arrows, and **Set** buttons
+with the shared preview; **Play zone** previews just that subrange. Across the
+entire repeat/speed pattern, the first and last plays use the full clip and every
+middle play uses the hot zone, retaining each phase's speed. One or two plays
+therefore use the full clip throughout. Without a hot zone, behavior is unchanged.
+Timeline duration and seeking include the shorter middle plays. Hot zones are
+saved and copied with each clip; **Apply to all clips** copies only the pattern.
+Prepared clips keep the full interval and seek into it for hot-zone plays, so
+changing a hot zone does not require generating clips again.
+
 The Inspector's **Repeat & speed** phases each have a repeat count and speed.
 Choose from 11 presets: normal playback; 3×/5× repeats; half/quarter speed;
 normal → half-speed or the reverse; 3/2/3 and 2/2/2 patterns; progressive slowdown;

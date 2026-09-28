@@ -20,9 +20,21 @@
   function catalog(document){const items=new Map();for(const c of [...(document.media||[]),...(document.clips||[])])if(!items.has(mediaKey(c)))items.set(mediaKey(c),copyClip(c));return [...items.values()];}
   function insertClip(clips,clip,index){const result=clips.slice();result.splice(Math.max(0,Math.min(index,result.length)),0,copyClip(clip));return result;}
   function phases(clip) { return clip.phases || presets.once; }
-  function duration(clip) {
-    return Math.max(0,clip.end-clip.start)*phases(clip).reduce((total,p)=>total+(Number(p.repeat)||0)/(Number(p.speed)||1),0);
+  function validHotZone(clip) {
+    const zone=clip.hot_zone;
+    return zone==null||(Number.isFinite(zone.start)&&Number.isFinite(zone.end)&&zone.start>=clip.start&&zone.end<=clip.end&&zone.end>zone.start);
   }
+  function phaseDurations(clip) {
+    const sequence=phases(clip), total=sequence.reduce((n,p)=>n+(Number(p.repeat)||0),0);
+    const full=Math.max(0,clip.end-clip.start), hot=clip.hot_zone&&validHotZone(clip)?clip.hot_zone.end-clip.hot_zone.start:full;
+    let index=0;
+    return sequence.map(p=>{
+      const count=Number(p.repeat)||0;
+      const context=(count>0&&index===0?1:0)+(count>0&&index+count===total&&total>1?1:0);
+      index+=count;return (hot*count+(full-hot)*context)/(Number(p.speed)||1);
+    });
+  }
+  function duration(clip) {return phaseDurations(clip).reduce((n,d)=>n+d,0);}
   function timeline(clips) {
     let start=0;
     return clips.map((clip,index)=>{
@@ -32,12 +44,15 @@
   }
   function expand(clips) {
     let position=0;
-    return clips.flatMap((clip,clipIndex)=>phases(clip).flatMap((phase,phaseIndex)=>
-      Array.from({length:phase.repeat},(_,repeatIndex)=>{
-        const timelineStart=position;
-        position+=(clip.end-clip.start)/phase.speed;
-        return {...clip,speed:phase.speed,clipIndex,phaseIndex,repeatIndex,repeatCount:phase.repeat,timelineStart,timelineEnd:position};
-      })));
+    return clips.flatMap((clip,clipIndex)=>{
+      const total=phases(clip).reduce((n,p)=>n+Number(p.repeat),0);let passIndex=0;
+      return phases(clip).flatMap((phase,phaseIndex)=>Array.from({length:phase.repeat},(_,repeatIndex)=>{
+        const hot=!!clip.hot_zone&&validHotZone(clip)&&passIndex>0&&passIndex<total-1;
+        const start=hot?clip.hot_zone.start:clip.start,end=hot?clip.hot_zone.end:clip.end;
+        const timelineStart=position;position+=(end-start)/phase.speed;passIndex++;
+        return {...clip,start,end,cacheOffset:start-clip.start,isHotZone:hot,speed:phase.speed,clipIndex,phaseIndex,repeatIndex,repeatCount:phase.repeat,timelineStart,timelineEnd:position};
+      }));
+    });
   }
   function locate(passes,position) {
     if(!passes.length)return {index:0,offset:0};
@@ -94,7 +109,7 @@
   }
   const clipboardType='stash-marker-compilation-clip';
   function copyClip(clip) {
-    return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p}))};
+    return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p})),...(clip.hot_zone?{hot_zone:{...clip.hot_zone}}:{})};
   }
   function encodeClip(clip){return JSON.stringify({type:clipboardType,version:1,clip:copyClip(clip)});}
   function decodeClip(text){
@@ -104,10 +119,11 @@
       if(data.type!==clipboardType||data.version!==1||!c||!/^\d+$/.test(c.scene_id)||typeof c.title!=='string'||c.title.length>300)return null;
       if(!Number.isFinite(c.start)||!Number.isFinite(c.end)||c.start<0||c.end<=c.start)return null;
       if(!Array.isArray(c.phases)||!c.phases.length||c.phases.length>10||c.phases.some(p=>!p||!Number.isInteger(p.repeat)||p.repeat<1||p.repeat>20||![.25,.5,.75,1,1.25,1.5,2,3].includes(p.speed)))return null;
+      if(!validHotZone(c))return null;
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

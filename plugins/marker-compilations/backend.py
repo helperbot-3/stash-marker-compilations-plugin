@@ -80,6 +80,15 @@ def validate_clips(clips):
             clean_phases.append({'repeat': int(repeat), 'speed': speed})
         clean.append({'scene_id': scene_id, 'marker_id': str(clip.get('marker_id', '')),
                       'title': str(clip.get('title', ''))[:300], 'start': start, 'end': end, 'phases': clean_phases})
+        zone = clip.get('hot_zone')
+        if zone is not None:
+            if not isinstance(zone, dict):
+                raise ValueError('Invalid hot zone')
+            hot_start, hot_end = number(zone.get('start'), 'Hot zone start'), number(zone.get('end'), 'Hot zone end')
+            if not start <= hot_start < hot_end <= end:
+                raise ValueError('Hot zone must have start < end and stay inside the clip range')
+            clean[-1]['hot_zone'] = {'start': hot_start, 'end': hot_end}
+
     return clean
 
 
