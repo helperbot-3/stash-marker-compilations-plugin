@@ -98,55 +98,37 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 7. Select a timeline clip and use **Play clip** to play from it, or seek on the ruler/position slider.
    **Fullscreen** expands the main viewport and playback controls.
 
-Use **+ Zone** in the inspector to define optional non-overlapping subranges inside the
-clip's Start/End range. Use the frame time fields, jump arrows, and **Set** buttons
-with the shared preview; **Play zone** previews just that subrange. Across the
-entire repeat/speed pattern, the first and last plays use the full clip and every
-middle play uses all hot zones in chronological order, retaining each phase's speed. These are the default
-ranges; **Repeat & speed → Repetition ranges** lets you switch any numbered play
-between **Full** and **Hot**, including the first and last. The same controls are
-available when saving/editing patterns, and these choices travel with the pattern.
-**Reset to first & last full** restores the default. With the default, one or two plays
-therefore use the full clip throughout. Without a hot zone, behavior is unchanged.
-Timeline duration and seeking include the shorter middle plays. Hot zones are
-saved and copied with each clip; **Apply to all clips** copies only the pattern.
-Prepared clips keep the full interval and seek into it for hot-zone plays, so
-changing a hot zone does not require generating clips again.
+Use **+ Zone** in the inspector to define non-overlapping hot zones. Select a
+numbered zone to name it, edit frame timecodes, jump to a boundary, or use **Set**
+with the main preview. Setting Start at or beyond End moves End forward to preserve
+the previous duration, capped at the next zone or clip boundary. A start inside
+another zone or outside the clip still needs correction.
 
-The Inspector's **Repeat & speed** phases each have a repeat count and speed.
-Choose from 11 presets: normal playback; 3×/5× repeats; half/quarter speed;
-normal → half-speed or the reverse; 3/2/3 and 2/2/2 patterns; progressive slowdown;
-and slowdown followed by a return to normal. Every preset remains editable.
-Use **Save / manage patterns** in the inspector to save the current sequence as a
-named custom pattern. The dialog lets you select an existing pattern, change its
-name, repeat counts or speeds, add/remove phases, update it, make a copy, or
-delete it. **Save as new** immediately saves a separate copy of the edited sequence,
-using an unused name without changing the original. Saved patterns appear in both preset menus and persist in Stash across
-browser sessions and compilations. Applying a pattern copies its phases; updating
-or deleting the saved pattern does not alter clips that already use it. Clip trims
-and hot zones are never included in a saved repetition pattern.
-**Apply to all clips** copies the selected pattern while retaining
-individual source trims. Options in the marker browser set defaults for new clips.
+**Repeat & speed** contains a mini sequence timeline. Each block independently
+chooses **Full clip**, **All hot zones**, or an individual named/numbered zone,
+along with a repeat count and speed. Click a block to edit its fields and preview
+its start in the main viewport. Drag to reorder, or use the arrow buttons.
+**+ Step**, **Duplicate**, and **Remove** edit the sequence; focused blocks support
+Delete/Backspace and Cmd/Ctrl+D. **Play sequence** plays just the selected clip’s
+complete arrangement. Block widths are equal; durations are shown inside.
 
-Speeds range from 0.25× to 3×, with 1–20 repeats per phase and up to 10 phases.
-All phases of a clip finish before the next clip starts. Timeline widths and the
-playhead account for repeats and speed, showing actual viewing time. Editing a
-clip stops playback so the next preview uses the updated sequence.
+For example: Zone 1 twice at normal speed → Zone 1 once at half speed → Full clip
+once at normal speed → Zone 2 once at half speed. All hot zones plays each zone
+chronologically within each repetition, falling back to the full clip when there
+are none. Individual missing zone references require choosing a replacement.
 
-Markers with an end use their full interval; others use the marker browser's
-fallback duration, capped at the source duration. Choose **Source videos** in the
-preview to play from original scenes. The stream selector can switch to another
-browser-compatible Stash stream.
+Zones have stable identities, so timing changes do not redirect their steps.
+A referenced zone cannot be removed until its steps are reassigned or removed.
+Existing patterns convert automatically with the same playback order and speeds.
+Up to 200 steps and 20 hot zones are supported per clip.
 
-For generated intervals, open **Prepare clips**, choose width/audio, and click
-**Generate clips**. Then select **Prepared clips** in the preview. These intervals
-have no 20-second preview cap. Repetition and speed changes reuse the same files
-without further encoding. Pitch preservation is requested from the browser.
-
-The cache is optional. Transitions can buffer; playback is not guaranteed to be
-frame-perfect or gapless. Source mode uses browser-supported progressive streams;
-HLS/DASH-only sources should use cached clips. Native Stash playback integrations
-such as interactive devices are not implemented in this player.
+**Save / manage patterns** uses the same sequence controls. Save, rename, update,
+copy, or delete named templates. **Save as new** saves an independent copy immediately.
+Templates map zone references by chronological number when applied to another clip;
+missing zones are flagged as **Choose range** and block playback until resolved.
+**Apply to all clips** maps the sequence onto each clip while keeping their trims
+and zone boundaries. Prepared clips retain the full source interval, so changing
+sequences or zones does not require generating clips again.
 
 ## Storage and behavior
 
@@ -185,14 +167,3 @@ validate every UI GraphQL operation against the real schema. `node tests/browser
 exercises both playback modes, repeat/speed patterns, persistence, mobile layout and the actual Stash UI using Chrome and seeded test markers named `Long interval`
 and `Closing clip`. It writes test compilations and cached media: never point it at a
 production instance.
-
-### Multiple hot zones
-
-In the clip inspector, use **+ Zone** to add a range in an unused part of the clip.
-Select a numbered zone to adjust its start/end using the existing timecodes, frame
-controls, and main preview. **Play zone** previews the selected range; **Remove**
-deletes that range. Up to 20 non-overlapping zones can be defined per clip.
-Zones play chronologically: each **Hot** repetition plays all zones once, at that
-phase’s speed. Each **Full** repetition plays the entire clip. With no zones, Hot
-also uses the full clip. Existing single hot zones remain available automatically.
-Zone boundaries stay with the clip; saved patterns retain only Full/Hot choices.

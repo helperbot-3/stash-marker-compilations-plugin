@@ -21,6 +21,36 @@
   function insertClip(clips,clip,index){const result=clips.slice();result.splice(Math.max(0,Math.min(index,result.length)),0,copyClip(clip));return result;}
   function phases(clip) { return clip.phases || presets.once; }
   function hotZones(clip){return (Array.isArray(clip.hot_zones)?clip.hot_zones:clip.hot_zone?[clip.hot_zone]:[]).slice().sort((a,b)=>(a?.start||0)-(b?.start||0));}
+  function identifiedZones(clip){return hotZones(clip).map((z,i)=>({...z,id:z.id||'legacy-'+i}));}
+  function sequence(clip){
+    const result=[];
+    phases(clip).forEach((p,i)=>{
+      if(p.target){result.push({...p});return;}
+      for(let j=0;j<p.repeat;j++){
+        const target=repetitionRange(phases(clip),i,j),last=result[result.length-1];
+        if(last&&last.target===target&&last.speed===p.speed&&last.repeat<20)last.repeat++;
+        else result.push({target,repeat:1,speed:p.speed});
+      }
+    });return result;
+  }
+  function stepRanges(clip,target){
+    const zones=identifiedZones(clip);
+    if(target==='full')return [{start:clip.start,end:clip.end}];
+    if(target==='hot')return zones.length?zones:[{start:clip.start,end:clip.end}];
+    return zones.filter(z=>'zone:'+z.id===target);
+  }
+  function missingRanges(clip){return sequence(clip).some(p=>!stepRanges(clip,p.target).length);}
+  function portableSequence(clip){const zones=identifiedZones(clip);return sequence(clip).map(p=>({...p,target:p.target.startsWith('zone:')?'slot:'+(zones.findIndex(z=>'zone:'+z.id===p.target)+1):p.target}));}
+  function applySequence(phases,clip){const zones=identifiedZones(clip);return sequence({phases}).map(p=>({...p,target:p.target.startsWith('slot:')&&zones[Number(p.target.slice(5))-1]?'zone:'+zones[Number(p.target.slice(5))-1].id:p.target}));}
+  function adjustedRange(range,patch,min,max,others=[]){
+    const next={...range,...patch};
+    if(patch.start!==undefined&&next.start>=range.end){
+      if(others.some(z=>next.start>=z.start&&next.start<z.end))return null;
+      const bound=Math.min(max,...others.filter(z=>z.start>next.start).map(z=>z.start));
+      next.end=Math.min(bound,next.start+(range.end-range.start));
+    }
+    return next.start>=min&&next.end<=max&&next.end>next.start&&!others.some(z=>next.start<z.end&&next.end>z.start)?next:null;
+  }
   function validHotZone(clip) {
     if(clip.hot_zones!==undefined&&!Array.isArray(clip.hot_zones))return false;
     const zones=hotZones(clip);
@@ -36,6 +66,7 @@
     return {start:from,end:Math.min(gap.end,from+Math.min(1,(gap.end-gap.start)/2))};
   }
   function repetitionRange(sequence,phaseIndex,repeatIndex) {
+    if(sequence[phaseIndex].target)return sequence[phaseIndex].target;
     const explicit=sequence[phaseIndex].ranges?.[repeatIndex];
     if(explicit==='full'||explicit==='hot')return explicit;
     const index=sequence.slice(0,phaseIndex).reduce((n,p)=>n+Number(p.repeat),0)+repeatIndex;
@@ -44,9 +75,7 @@
   }
   function validRanges(phase){return phase.ranges===undefined||(Array.isArray(phase.ranges)&&phase.ranges.length===phase.repeat&&phase.ranges.every(r=>['auto','full','hot'].includes(r)));}
   function phaseDurations(clip) {
-    const sequence=phases(clip),full=Math.max(0,clip.end-clip.start);
-    const zones=hotZones(clip),hot=zones.length&&validHotZone(clip)?zones.reduce((n,z)=>n+z.end-z.start,0):full;
-    return sequence.map((p,i)=>Array.from({length:p.repeat},(_,j)=>repetitionRange(sequence,i,j)==='hot'?hot:full).reduce((n,d)=>n+d,0)/(Number(p.speed)||1));
+    return phases(clip).map((p,i)=>Array.from({length:p.repeat},(_,j)=>stepRanges(clip,repetitionRange(phases(clip),i,j)).reduce((n,z)=>n+z.end-z.start,0)).reduce((n,d)=>n+d,0)/(Number(p.speed)||1));
   }
   function duration(clip) {return phaseDurations(clip).reduce((n,d)=>n+d,0);}
   function timeline(clips) {
@@ -60,8 +89,8 @@
     let position=0;
     return clips.flatMap((clip,clipIndex)=>{
       return phases(clip).flatMap((phase,phaseIndex)=>Array.from({length:phase.repeat},(_,repeatIndex)=>{
-        const zones=hotZones(clip), hot=zones.length>0&&validHotZone(clip)&&repetitionRange(phases(clip),phaseIndex,repeatIndex)==='hot';
-        return (hot?zones:[{start:clip.start,end:clip.end}]).map(({start,end},zoneIndex)=>{
+        const target=repetitionRange(phases(clip),phaseIndex,repeatIndex),hot=target!=='full';
+        return stepRanges(clip,target).map(({start,end},zoneIndex)=>{
           const timelineStart=position;position+=(end-start)/phase.speed;
           return {...clip,start,end,cacheOffset:start-clip.start,isHotZone:hot,zoneIndex:hot?zoneIndex:null,speed:phase.speed,clipIndex,phaseIndex,repeatIndex,repeatCount:phase.repeat,timelineStart,timelineEnd:position};
         });
@@ -132,12 +161,12 @@
       const data=JSON.parse(text), c=data.clip;
       if(data.type!==clipboardType||data.version!==1||!c||!/^\d+$/.test(c.scene_id)||typeof c.title!=='string'||c.title.length>300)return null;
       if(!Number.isFinite(c.start)||!Number.isFinite(c.end)||c.start<0||c.end<=c.start)return null;
-      if(!Array.isArray(c.phases)||!c.phases.length||c.phases.length>10||c.phases.some(p=>!p||!Number.isInteger(p.repeat)||p.repeat<1||p.repeat>20||![.25,.5,.75,1,1.25,1.5,2,3].includes(p.speed)))return null;
-      if(!validHotZone(c)||c.phases.some(p=>!validRanges(p)))return null;
+      if(!Array.isArray(c.phases)||!c.phases.length||c.phases.length>200||c.phases.some(p=>!p||!Number.isInteger(p.repeat)||p.repeat<1||p.repeat>20||![.25,.5,.75,1,1.25,1.5,2,3].includes(p.speed)))return null;
+      if(!validHotZone(c)||c.phases.some(p=>!validRanges(p)||(p.target&&!/^(full|hot|zone:[A-Za-z0-9_-]{1,80}|slot:[0-9]{1,2})$/.test(p.target))))return null;
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

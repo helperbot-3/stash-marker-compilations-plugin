@@ -183,3 +183,28 @@ test('zone validation rejects overlap and invalid ranges; adding uses a free gap
   for(const hot_zones of [null,[null],[{start:2,end:4},{start:3,end:5}],[{start:-1,end:2}],[{start:9,end:11}]])assert.equal(patterns.validHotZone({...clip,hot_zones}),false);
   assert.equal(patterns.validHotZone({...clip,hot_zones:[{start:2,end:4},{start:4,end:5}]}),true);
 });
+test('arbitrary range sequence supports the requested order and stable zone identities',()=>{
+ const clip={start:0,end:20,hot_zones:[{id:'a',start:2,end:4},{id:'b',start:10,end:14}],phases:[{target:'zone:a',repeat:2,speed:1},{target:'zone:a',repeat:1,speed:.5},{target:'full',repeat:1,speed:1},{target:'zone:b',repeat:1,speed:.5}]};
+ assert.deepEqual(patterns.expand([clip]).map(p=>[p.start,p.end,p.speed]),[[2,4,1],[2,4,1],[2,4,.5],[0,20,1],[10,14,.5]]);
+ assert.equal(patterns.duration(clip),36);
+ const moved={...clip,hot_zones:[{id:'a',start:16,end:18},{id:'b',start:10,end:14}]};
+ assert.equal(patterns.expand([moved])[0].start,16);
+ const portable=patterns.portableSequence(clip);
+ assert.equal(portable[0].target,'slot:1');
+ assert.equal(patterns.applySequence(portable,{hot_zones:[{id:'x',start:1,end:2} ]})[0].target,'zone:x');
+ assert.equal(patterns.missingRanges({...clip,hot_zones:[]}),true);
+});
+test('sequence migration preserves every legacy playback interval and speed',()=>{
+ for(const phases of Object.values(patterns.presets)){
+  const clip={start:0,end:20,hot_zones:[{start:2,end:4},{start:8,end:9}],phases};
+  assert.deepEqual(patterns.expand([clip]).map(p=>[p.start,p.end,p.speed]),patterns.expand([{...clip,phases:patterns.sequence(clip)}]).map(p=>[p.start,p.end,p.speed]));
+ }
+});
+test('moving start past end preserves duration, clips to next zone, and rejects occupied starts',()=>{
+ const z={id:'a',start:1,end:3};
+ assert.deepEqual(patterns.adjustedRange(z,{start:5},0,20),{id:'a',start:5,end:7});
+ assert.deepEqual(patterns.adjustedRange(z,{start:5},0,20,[{start:6,end:8}]),{id:'a',start:5,end:6});
+ assert.equal(patterns.adjustedRange(z,{start:7},0,20,[{start:6,end:8}]),null);
+ assert.equal(patterns.adjustedRange(z,{start:20},0,20),null);
+ assert.deepEqual(patterns.adjustedRange(z,{start:19},0,20),{id:'a',start:19,end:20});
+});

@@ -1,4 +1,5 @@
 """Stash raw plugin. Standard library only; FFmpeg renders clips and FFprobe reads frame timestamps."""
+import re
 from fractions import Fraction
 import hashlib
 import json
@@ -68,8 +69,8 @@ def validate_clips(clips):
         if not scene_id.isdigit():
             raise ValueError('Each clip needs a source scene')
         phases = clip.get('phases', [{'repeat': 1, 'speed': 1}])
-        if not isinstance(phases, list) or not 1 <= len(phases) <= 10:
-            raise ValueError('Each clip needs 1–10 playback phases')
+        if not isinstance(phases, list) or not 1 <= len(phases) <= 200:
+            raise ValueError('Each clip needs 1–200 playback steps')
         clean_phases = []
         for phase in phases:
             repeat, speed = number(phase.get('repeat'), 'Repeat count'), number(phase.get('speed'), 'Speed')
@@ -78,6 +79,11 @@ def validate_clips(clips):
             if speed not in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3):
                 raise ValueError('Choose one of the supported playback speeds')
             clean_phases.append({'repeat': int(repeat), 'speed': speed})
+            if 'target' in phase:
+                target = phase['target']
+                if not isinstance(target, str) or not re.fullmatch(r'(full|hot|zone:[A-Za-z0-9_-]{1,80}|slot:[0-9]{1,2})', target):
+                    raise ValueError('Invalid step range')
+                clean_phases[-1]['target'] = target
             if 'ranges' in phase:
                 ranges = phase['ranges']
                 if not isinstance(ranges, list) or len(ranges) != int(repeat) or any(r not in ('auto', 'full', 'hot') for r in ranges):
@@ -98,6 +104,15 @@ def validate_clips(clips):
             if not start <= hot_start < hot_end <= end:
                 raise ValueError('Hot zones must have start < end and stay inside the clip range')
             cleaned_zones.append({'start': hot_start, 'end': hot_end})
+            if 'id' in zone:
+                if not isinstance(zone['id'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', zone['id']):
+                    raise ValueError('Invalid zone identity')
+                cleaned_zones[-1]['id'] = zone['id']
+            if 'name' in zone:
+                cleaned_zones[-1]['name'] = str(zone['name'])[:80]
+        ids = [z['id'] for z in cleaned_zones if 'id' in z]
+        if len(ids) != len(set(ids)):
+            raise ValueError('Zone identities must be unique')
         cleaned_zones.sort(key=lambda z: z['start'])
         if any(a['end'] > b['start'] for a, b in zip(cleaned_zones, cleaned_zones[1:])):
             raise ValueError('Hot zones must not overlap')

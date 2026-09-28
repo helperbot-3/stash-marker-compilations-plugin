@@ -77,6 +77,22 @@ class BackendTests(unittest.TestCase):
             with self.subTest(zone=zone), self.assertRaises(ValueError):
                 b.validate(document(clips=[dict(clip, hot_zone=zone)]))
 
+    def test_sequence_targets_and_zone_identities_persist(self):
+        clip = dict(document()['clips'][0], start=0, end=10,
+                    hot_zones=[{'id': 'stable-a', 'name': 'Focus', 'start': 1, 'end': 3}],
+                    phases=[{'target': 'zone:stable-a', 'repeat': 2, 'speed': .5}, {'target': 'full', 'repeat': 1, 'speed': 1}])
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            saved = store.save(document(clips=[clip]))
+            self.assertEqual(store.get(saved['id'])['clips'][0]['hot_zones'], clip['hot_zones'])
+            self.assertEqual(store.get(saved['id'])['clips'][0]['phases'], clip['phases'])
+            template = store.save_pattern({'name': 'Zone pattern', 'phases': [{'target': 'slot:1', 'repeat': 3, 'speed': .5}]})
+            self.assertEqual(template['phases'][0]['target'], 'slot:1')
+            for target in ['zone:', 'invalid', 123]:
+                with self.assertRaises(ValueError):
+                    b.validate_clips([dict(clip, phases=[{'target': target, 'repeat': 1, 'speed': 1}])])
+            store.db.close()
+
     def test_multiple_hot_zones_persist_sort_and_validate(self):
         clip = dict(document()['clips'][0], start=0, end=10, hot_zones=[{'start': 6, 'end': 8}, {'start': 1, 'end': 3}])
         with tempfile.TemporaryDirectory() as directory:
