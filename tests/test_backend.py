@@ -77,6 +77,36 @@ class BackendTests(unittest.TestCase):
             with self.subTest(zone=zone), self.assertRaises(ValueError):
                 b.validate(document(clips=[dict(clip, hot_zone=zone)]))
 
+    def test_custom_patterns_persist_validate_and_detect_conflicts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = b.Store(Path(directory))
+            self.assertEqual(store.list_patterns(), [])
+            saved = store.save_pattern({'name': 'Slow focus', 'phases': [{'repeat': 3, 'speed': .5}]})
+            other = b.Store(Path(directory))
+            self.assertEqual(other.list_patterns()[0], saved)
+            compilation = store.save(document(clips=[dict(document()['clips'][0], phases=saved['phases'])]))
+            renamed = other.save_pattern(dict(saved, name='Slow return', phases=[{'repeat': 2, 'speed': 1}]))
+            self.assertEqual(renamed['revision'], 2)
+            self.assertEqual(renamed['name'], 'Slow return')
+            self.assertEqual(store.get(compilation['id'])['clips'][0]['phases'], saved['phases'])
+            with self.assertRaises(ValueError):
+                store.save_pattern(dict(saved, name='Stale'))
+            with self.assertRaises(ValueError):
+                store.delete_pattern(saved['id'], saved['revision'])
+            with self.assertRaises(ValueError):
+                store.save_pattern({'name': 'SLOW RETURN', 'phases': saved['phases']})
+            for invalid in [{'name': '', 'phases': saved['phases']}, {'name': 'Missing'},
+                            {'name': 'Empty', 'phases': []},
+                            {'name': 'Bad', 'phases': [{'repeat': 0, 'speed': 1}]},
+                            {'name': 'Bad speed', 'phases': [{'repeat': 1, 'speed': 99}]}]:
+                with self.subTest(pattern=invalid), self.assertRaises(ValueError):
+                    store.save_pattern(invalid)
+            store.delete_pattern(renamed['id'], renamed['revision'])
+            self.assertEqual(other.list_patterns(), [])
+            self.assertEqual(store.get(compilation['id'])['clips'][0]['phases'], saved['phases'])
+            other.db.close()
+            store.db.close()
+
     def test_invalid_intervals_and_settings(self):
         for start, end in [(-1, 2), (2, 2), (3, 2), (float('nan'), 4), (0, float('inf')), ('', 3), (False, 2)]:
             with self.subTest(start=start, end=end), self.assertRaises(ValueError):

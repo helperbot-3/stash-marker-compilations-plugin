@@ -126,6 +126,38 @@ class Store:
         root.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(root / 'compilations.sqlite3', timeout=30)
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, revision INTEGER NOT NULL, phases TEXT NOT NULL)')
+
+    def list_patterns(self):
+        return [{'id': id_, 'name': name, 'revision': revision, 'phases': json.loads(phases)}
+                for id_, name, revision, phases in self.db.execute('SELECT id,name,revision,phases FROM patterns ORDER BY name')]
+
+    def save_pattern(self, pattern):
+        if not isinstance(pattern, dict):
+            raise ValueError('Invalid pattern')
+        name = str(pattern.get('name', '')).strip()
+        if not name or len(name) > 100:
+            raise ValueError('Give the pattern a name of 1–100 characters')
+        phases = validate_clips([{'scene_id': '1', 'start': 0, 'end': 1, 'phases': pattern.get('phases')}])[0]['phases']
+        id_ = pattern.get('id') or str(uuid.uuid4())
+        try:
+            with self.db:
+                if pattern.get('id'):
+                    cursor = self.db.execute('UPDATE patterns SET name=?,phases=?,revision=revision+1 WHERE id=? AND revision=?',
+                                             (name, json.dumps(phases), id_, pattern.get('revision')))
+                    if cursor.rowcount != 1:
+                        raise ValueError('Pattern changed in another window. Close and reopen Patterns to refresh.')
+                else:
+                    self.db.execute('INSERT INTO patterns VALUES (?,?,1,?)', (id_, name, json.dumps(phases)))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError('A pattern with this name already exists') from exc
+        return next(p for p in self.list_patterns() if p['id'] == id_)
+
+    def delete_pattern(self, id_, revision):
+        with self.db:
+            if self.db.execute('DELETE FROM patterns WHERE id=? AND revision=?', (id_, revision)).rowcount != 1:
+                raise ValueError('Pattern changed in another window. Close and reopen Patterns to refresh.')
+        return True
 
     def list(self):
         documents = [dict(json.loads(doc), id=id_, revision=revision) for id_, revision, doc in self.db.execute('SELECT id, revision, document FROM compilations ORDER BY rowid DESC')]
@@ -264,6 +296,12 @@ def run(payload):
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    if action == 'list_patterns':
+        return store.list_patterns()
+    if action == 'save_pattern':
+        return store.save_pattern(args['pattern'])
+    if action == 'delete_pattern':
+        return store.delete_pattern(args['id'], args.get('revision'))
     if action == 'list':
         return store.list()
     if action == 'save':

@@ -113,6 +113,13 @@ The Inspector's **Repeat & speed** phases each have a repeat count and speed.
 Choose from 11 presets: normal playback; 3×/5× repeats; half/quarter speed;
 normal → half-speed or the reverse; 3/2/3 and 2/2/2 patterns; progressive slowdown;
 and slowdown followed by a return to normal. Every preset remains editable.
+Use **Save / manage patterns** in the inspector to save the current sequence as a
+named custom pattern. The dialog lets you select an existing pattern, change its
+name, repeat counts or speeds, add/remove phases, update it, make a copy, or
+delete it. Saved patterns appear in both preset menus and persist in Stash across
+browser sessions and compilations. Applying a pattern copies its phases; updating
+or deleting the saved pattern does not alter clips that already use it. Clip trims
+and hot zones are never included in a saved repetition pattern.
 **Apply to all clips** copies the selected pattern while retaining
 individual source trims. Options in the marker browser set defaults for new clips.
 
