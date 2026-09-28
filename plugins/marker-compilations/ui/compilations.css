@@ -84,3 +84,9 @@
 .mc-catalog-heading h2{white-space:nowrap;font-size:12px}.mc .mc-catalog-heading input[type=search]{width:130px!important;max-width:130px!important;padding:4px 6px!important;font-size:11px!important}
 .mc-media-item{touch-action:none;user-select:none}.mc-media-item.is-dragging{opacity:.5;border-color:var(--mc-accent)}.mc-media-drag-ghost{position:fixed;z-index:1050;pointer-events:none;background:#35515b;color:#fff;border:1px solid var(--mc-accent);border-radius:4px;padding:8px 12px;font-size:12px;box-shadow:0 4px 16px #0008}
 .mc .mc-edit-sidebar .mc-apply-pattern{display:inline-block;margin:0 0 0 8px;padding:4px 0}.mc-edit-sidebar .mc-phase{margin-bottom:4px}.mc-edit-sidebar .mc-phase input,.mc-edit-sidebar .mc-phase select{height:26px;padding:3px 5px!important;line-height:18px}.mc-media-item{gap:2px;padding:6px}.mc-media-item button{line-height:1.2}
+/* Fixed-width clocks and source-frame trim controls. */
+.mc output,.mc-source-time,.mc-boundary-row input{font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-variant-numeric:tabular-nums;font-feature-settings:'tnum';white-space:nowrap}
+.mc-trim-controls output{display:inline-block;width:12ch;min-width:12ch;flex:0 0 12ch;text-align:right}.mc-timeline-toolbar output,.mc-viewer-seek output{display:inline-block;min-width:19ch}.mc-source-time{display:inline-block;min-width:19ch}
+.mc-fps{font-size:9px;font-weight:normal;color:var(--mc-muted);margin-left:8px}.mc .mc-step-controls select{min-width:68px}.mc-boundary-row input{letter-spacing:0;min-width:12ch!important}
+
+.mc-ruler{overflow:hidden}

@@ -51,14 +51,23 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    Removing a timeline clip keeps its catalog entry. Existing projects automatically
    seed their catalog from saved timeline clips; their timeline stays unchanged.
 3. Click a timeline clip to open the compact two-column **Inspector**. The left
-   column has the scrubber, 1 / 0.1 / 0.01-second steps, and start/end
+   column has the scrubber, 1 / 5 / 10-frame steps, and start/end
    fields. The main viewport switches to **Trim selected clip** when selecting a
    timeline clip or using a trim control. **Compilation** switches it back; only
    one video is visible. Use the arrow next to a boundary to jump there, or **Set** to use the
    current preview position. **Play range** previews just the interval. Changes
    apply directly to the compilation clip; the original Stash marker is unchanged.
-   Times accept `m:ss`, `h:mm:ss`, and fractional seconds. Steps seek by time;
-   displayed frames depend on the source frame rate.
+   Trim fields and the source clock show fixed-width `HH:MM:SS:FF` timecodes (FF is
+   the frame field), using the source rate and non-drop-frame numbering. Old `m:ss`
+   and `h:mm:ss` inputs with fractional seconds remain accepted. Merely focusing a
+   field does not round or change existing trims. Frame steps read actual source
+   presentation timestamps through Stash's configured FFprobe, including unevenly
+   spaced frames, and reuse a nearby window for quick repeated steps. **Set** snaps
+   to a source frame boundary; the end boundary remains exclusive. For variable-rate
+   video, timecode is a nominal source-rate reference rather than a unique frame
+   index; stepping still uses actual frame timestamps. Transcoded playback can
+   display different frames if it changes the source rate. If FFprobe or the source
+   file is unavailable, the editor reports that frame stepping is unavailable.
 4. The right column edits the ordered repetition/speed phases. Drag timeline clips
    to reorder, use the timeline toolbar arrows, or press **Alt + Left / Right** on a clip.
    Use **Zoom / Fit** for long timelines. **Cmd+C/X/V** (or Ctrl on Windows/Linux)

@@ -78,6 +78,28 @@ class BackendTests(unittest.TestCase):
             source = {'id': '1', 'path': str(file)}
             self.assertEqual(b.cache_key(clip, source, document()), b.cache_key(dict(clip, phases=[{'repeat': 1, 'speed': 1}]), source, document()))
 
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg required')
+    def test_frame_windows_use_presentation_timestamps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'frames.mp4'
+            for rate in ['24', '30000/1001']:
+                subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                'testsrc2=s=160x90:r={}:d=5'.format(rate), '-c:v', 'libx264', str(source)], check=True)
+                result = b.frame_window({'path': str(source), 'duration': 5}, 1, 'ffprobe')
+                fps = float(b.Fraction(rate))
+                self.assertAlmostEqual(result['fps'], fps, places=5)
+                self.assertTrue(result['at_start'])
+                self.assertAlmostEqual(result['times'][1]-result['times'][0], 1/fps, places=5)
+                self.assertGreater(result['times'][-1], 2)
+                with self.assertRaises(ValueError):
+                    b.frame_window({'path': str(source), 'duration': 5}, -1, 'ffprobe')
+            subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=25:d=4',
+                            '-vf', 'select=if(lt(t\\,2)\\,1\\,not(mod(n\\,2)))', '-fps_mode', 'vfr', '-c:v', 'libx264', str(source)], check=True)
+            result = b.frame_window({'path': str(source), 'duration': 4}, 2, 'ffprobe')
+            differences = {round(b-a, 2) for a, b in zip(result['times'], result['times'][1:])}
+            self.assertIn(.04, differences)
+            self.assertIn(.08, differences)
+
     def test_cancelled_parent_stops_encoder_and_removes_partial_clip(self):
         with tempfile.TemporaryDirectory() as directory:
             partial = Path(directory)/'partial.mp4'

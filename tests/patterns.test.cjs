@@ -74,3 +74,29 @@ test('all labeled presets expand into supported positive-duration sequences',()=
     assert.ok(patterns.duration({start:1,end:2,phases})>0);
   }
 });
+
+
+test('frame timecodes use fixed-width non-drop-frame numbering and round trip fractional rates',()=>{
+  for(const fps of [24,25,30,60,24000/1001,30000/1001,60000/1001,120]){
+    for(const n of [0,1,23,24,100,1800,108000]){
+      const text=patterns.frameTime(n/fps,fps);
+      assert.ok(Math.abs(patterns.parseFrameTime(text,fps)-n/fps)<1e-8);
+      assert.equal(text.length,fps===120?12:11);
+    }
+  }
+  assert.equal(patterns.frameTime(1+1/24,24),'00:00:01:01');
+  assert.equal(patterns.parseFrameTime('00:00:01:24',24),null);
+  assert.equal(patterns.parseFrameTime('0:01.25',24),1.25);
+  assert.equal(patterns.frameTime(2,null),'--:--:--:--');
+});
+
+test('frame stepping uses timestamps, including unequal frame durations and window edges',()=>{
+  const window={times:[0,.04,.1,.12,.2],at_start:true,at_end:true};
+  assert.equal(patterns.frameStep(window,.05,1),.1);
+  assert.equal(patterns.frameStep(window,.1,-1),.04);
+  assert.equal(patterns.frameStep(window,0,-1),0);
+  assert.equal(patterns.frameStep(window,.2,10),.2);
+  assert.equal(patterns.frameStep({...window,at_end:false},.5,-1),null);
+  assert.equal(patterns.frameStep({...window,at_start:false},0,-1),null);
+  assert.equal(patterns.frameStep({...window,at_end:false},.2,1),null);
+});

@@ -65,6 +65,33 @@
     const value=Number(match[1]||0)*3600+Number(match[2])*60+Number(match[3]);
     return Number.isFinite(value)&&value<=Number.MAX_SAFE_INTEGER?value:null;
   }
+  function frameRate(value){
+    const rate=Number(value);if(!Number.isFinite(rate)||rate<=0||rate>1000)return null;
+    for(const n of [24000,30000,60000,120000])if(Math.abs(rate-n/1001)<.0001)return n/1001;
+    return rate;
+  }
+  function frameTime(seconds,fps){
+    const rate=frameRate(fps);if(!rate)return '--:--:--:--';
+    const nominal=Math.round(rate)||1, frames=Math.floor(Math.max(0,Number(seconds)||0)*rate+rate*.000002);
+    const whole=Math.floor(frames/nominal), pad=n=>String(n).padStart(2,'0');
+    return pad(Math.floor(whole/3600))+':'+pad(Math.floor(whole/60)%60)+':'+pad(whole%60)+':'+String(frames%nominal).padStart(Math.max(2,String(nominal-1).length),'0');
+  }
+  function parseFrameTime(text,fps){
+    const match=String(text).trim().match(/^(\d+):([0-5]\d):([0-5]\d):(\d{2,3})$/), rate=frameRate(fps);
+    if(!match)return parseTime(text);
+    if(!rate||Number(match[4])>=Math.round(rate))return null;
+    return ((Number(match[1])*3600+Number(match[2])*60+Number(match[3]))*Math.round(rate)+Number(match[4]))/rate;
+  }
+  function frameIndex(times,position){
+    let lo=0,hi=times.length;while(lo<hi){const mid=(lo+hi)>>1;if(times[mid]<=position+.000002)lo=mid+1;else hi=mid;}return lo-1;
+  }
+  function frameStep(window,position,count){
+    if(!window?.times?.length)return null;
+    if(position>window.times[window.times.length-1]+.00002&&!window.at_end)return null;
+    const index=frameIndex(window.times,position), next=index+count;
+    if(index<0||next<0&&!window.at_start||next>=window.times.length&&!window.at_end)return null;
+    return window.times[Math.max(0,Math.min(window.times.length-1,next))];
+  }
   const clipboardType='stash-marker-compilation-clip';
   function copyClip(clip) {
     return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p}))};
@@ -80,7 +107,7 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,presetLabels,mediaKey,catalog,insertClip,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

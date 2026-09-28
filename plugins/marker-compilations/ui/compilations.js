@@ -13,23 +13,24 @@
   const TAGS = gql`query CompilationTags{findTags(filter:{per_page:-1,sort:"name",direction:ASC}){tags{id name}}}`;
   const JOB = gql`query CompilationJob($id:ID!){findJob(input:{id:$id}){id status progress error}}`;
   const blank = () => ({name:'Untitled compilation',clips:[],media:[],width:1280,audio:true});
-  const time = seconds => {const s = Math.max(0, seconds || 0); return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');};
+  const time = seconds => {const s=Math.floor(Math.max(0,seconds||0)),pad=n=>String(n).padStart(2,'0');return pad(Math.floor(s/3600))+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60);};
   const button = (text, onClick, disabled, props) => h('button', Object.assign({type:'button',onClick,disabled:!!disabled},props),text);
   const presetOptions=()=>Object.entries(patterns.presetLabels).map(([value,label])=>h('option',{key:value,value},label));
   function Field({label,children}) {return h('label',{className:'mc-field'},h('span',null,label),children);}
 
-  function TimeField({label,value,disabled,onChange,onFocus}) {
-    const [draft,setDraft]=useState(()=>patterns.formatTime(value)), [error,setError]=useState('');
-    useEffect(()=>{setDraft(patterns.formatTime(value));setError('');},[value]);
+  function TimeField({label,value,disabled,onChange,onFocus,fps}) {
+    const [draft,setDraft]=useState(()=>patterns.frameTime(value,fps)), [error,setError]=useState('');
+    useEffect(()=>{setDraft(patterns.frameTime(value,fps));setError('');},[value,fps]);
     function commit(){
-      const seconds=patterns.parseTime(draft);
-      if(seconds===null){setDraft(patterns.formatTime(value));setError('Use m:ss, for example 1:30. Previous time restored.');return;}
-      setError('');setDraft(patterns.formatTime(seconds));
+      if(draft===patterns.frameTime(value,fps))return;
+      const seconds=patterns.parseFrameTime(draft,fps);
+      if(seconds===null){setDraft(patterns.frameTime(value,fps));setError('Use HH:MM:SS:FF with a valid frame number.');return;}
+      setError('');setDraft(patterns.frameTime(seconds,fps));
       if(seconds!==value)onChange(seconds);
     }
-    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled,onFocus,placeholder:'0:00',spellCheck:false,
+    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled:disabled||!fps,onFocus,placeholder:'00:00:00:00',spellCheck:false,
       onChange:e=>{setDraft(e.target.value);setError('');},onBlur:commit,
-      onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setDraft(patterns.formatTime(value));setError('');}}}),
+      onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setDraft(patterns.frameTime(value,fps));setError('');}}}),
       error&&h('small',{role:'alert'},error));
   }
 
@@ -117,7 +118,7 @@
         button('⏭',()=>{advancing.current=false;go(next);},next<0,{'aria-label':'Next clip'}),
         button('Stop',onStop,false),
         h('span',{className:'mc-pass',role:'status'},'Pass '+(index+1)+' / '+clips.length+' · '+clip.speed+'× · Repeat '+(clip.repeatIndex+1)+'/'+clip.repeatCount),
-        h('output',{className:'mc-source-time','aria-label':'Source time'},'Source '+time(sourceTime)),
+        h('output',{className:'mc-source-time','aria-label':'Source time'},'Source '+patterns.frameTime(sourceTime,clip.frame_rate)),
         h('label',{className:'mc-volume'},'Volume',h('input',{type:'range',min:0,max:1,step:.05,value:volume,onChange:e=>{const value=Number(e.target.value);setVolume(value);if(video.current)video.current.volume=value;}})),
         !cached&&streams.length>1&&h('select',{'aria-label':'Source stream',value:sourceIndex,onChange:e=>{pending.current=Math.max(0,video.current.currentTime-start);shouldPlay.current=!video.current.paused;setSourceIndex(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type||'Source '+(i+1))))));
   }
@@ -170,18 +171,39 @@
     const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
     const start=clip.start, end=clip.end;
     const [position,setPosition]=useState(clip.start);
-    const [step,setStep]=useState(.1), [playing,setPlaying]=useState(false), [ready,setReady]=useState(false), [seeking,setSeeking]=useState(true), [error,setError]=useState('');
+    const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
+    const frameData=useRef(null), frameRequest=useRef(0);
+    const [step,setStep]=useState(1), [playing,setPlaying]=useState(false), [ready,setReady]=useState(false), [seeking,setSeeking]=useState(true), [error,setError]=useState('');
     useEffect(()=>{
       let disposed=false;
-      client.query({query:gql`query CompilationTrimSource($id:ID!){findScene(id:$id){sceneStreams{url mime_type label}}}`,variables:{id:clip.scene_id},fetchPolicy:'network-only'})
-        .then(r=>{if(disposed)return;const compatible=(r.data.findScene?.sceneStreams||[]).filter(s=>!/mpegurl|dash/i.test(s.mime_type||''));setStreams(compatible);if(!compatible.length)setError('No compatible source stream is available for trimming.');})
+      client.query({query:gql`query CompilationTrimSource($id:ID!){findScene(id:$id){files{frame_rate} sceneStreams{url mime_type label}}}`,variables:{id:clip.scene_id},fetchPolicy:'network-only'})
+        .then(r=>{if(disposed)return;setFps(patterns.frameRate(r.data.findScene?.files?.[0]?.frame_rate));const compatible=(r.data.findScene?.sceneStreams||[]).filter(s=>!/mpegurl|dash/i.test(s.mime_type||''));setStreams(compatible);if(!compatible.length)setError('No compatible source stream is available for trimming.');})
         .catch(e=>{if(!disposed)setError(e.message);});
       return()=>{disposed=true;};
     },[clip.scene_id]);
-    function seek(value){
+    async function loadFrames(position){
+      const id=++frameRequest.current;setFrameBusy(true);setFrameError('');
+      try{
+        const r=await client.mutate({mutation:OP,variables:{args:{action:'frames',scene_id:clip.scene_id,position}}});
+        if(id!==frameRequest.current)return null;
+        const data=r.data.runPluginOperation;frameData.current=data;setFps(patterns.frameRate(data.fps));return data;
+      }catch(e){if(id===frameRequest.current)setFrameError('Frame stepping unavailable: '+e.message);return null;}
+      finally{if(id===frameRequest.current)setFrameBusy(false);}
+    }
+    useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;};},[clip.scene_id]);
+    async function stepFrames(direction){
+      const v=video.current;if(!v||!ready||frameBusy||seeking)return;
+      onBeforePlay();v.pause();limit.current=null;
+      const point=v.currentTime, count=direction*step;
+      let next=patterns.frameStep(frameData.current,point,count);
+      if(next===null){const data=await loadFrames(point);if(!data)return;next=patterns.frameStep(data,point,count);}
+      if(next!==null)seek(next,true);
+      else setFrameError('Could not locate the next frame in this source.');
+    }
+    function seek(value,frame=false){
       const v=video.current;if(!v||!ready)return;
       onBeforePlay();v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
-      setSeeking(true);v.currentTime=target;setPosition(target);
+      setSeeking(true);v.currentTime=Math.min(duration,target+(frame ? .00001 : 0));setPosition(target);
     }
     function loaded(){
       const v=video.current;
@@ -191,17 +213,30 @@
     }
     function update(){const v=video.current;if(!v)return;setPosition(v.currentTime);if(limit.current!=null&&v.currentTime>=limit.current){v.pause();v.currentTime=limit.current;limit.current=null;}}
     useEffect(()=>{let frame;function tick(){if(video.current&&!video.current.paused)update();frame=requestAnimationFrame(tick);}frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);},[]);
+    useEffect(()=>{
+      const v=video.current;if(!v?.requestVideoFrameCallback)return;
+      let token,disposed=false;
+      function frame(now,info){if(disposed)return;if(!v.paused)setPosition(info.mediaTime);token=v.requestVideoFrameCallback(frame);}
+      token=v.requestVideoFrameCallback(frame);return()=>{disposed=true;v.cancelVideoFrameCallback(token);};
+    },[target,stream]);
     function play(selection){
       const v=video.current;if(!v||!ready)return;
       onBeforePlay();limit.current=selection?end:null;
       if(selection){v.currentTime=start;setPosition(start);}
       v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
     }
-    function mark(which){const v=video.current;if(!v||v.seeking)return;v.pause();limit.current=null;const point=Number(v.currentTime.toFixed(6));setPosition(point);onChange({[which]:point});}
+    async function mark(which){
+      const v=video.current;if(!v||v.seeking||frameBusy)return;
+      v.pause();limit.current=null;const current=v.currentTime;
+      let data=frameData.current, point=patterns.frameStep(data,current,0);
+      if(point===null){data=await loadFrames(current);if(!data)return;point=patterns.frameStep(data,current,0);}
+      if(point===null)return;
+      setPosition(point);onChange({[which]:point});
+    }
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={pause:()=>video.current?.pause()};return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
-      h('h3',null,'Trim'),
+      h('h3',null,'Trim',h('span',{className:'mc-fps',title:'Source frame rate. HH:MM:SS:FF non-drop-frame timecode.'},fps?Number(fps.toFixed(3))+' fps':'Reading frame rate…')),
       target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'metadata',playsInline:true,controls:true,onLoadedMetadata:loaded,
         onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();},
         onError:()=>{setReady(false);setError('Source unavailable. Try another stream.');}})),target),
@@ -210,15 +245,16 @@
         button(playing?'Ⅱ':'▶',()=>playing?video.current.pause():play(false),!ready||busy,{'aria-label':playing?'Pause source preview':'Play source preview'}),
         button('Play range',()=>play(true),!valid||busy),
         h('div',{className:'mc-step-controls'},
-        button('−',()=>seek(position-step),!ready||seeking||busy,{'aria-label':'Step backward'}),
-        h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[.01,.1,1].map(s=>h('option',{key:s,value:s},s+' s'))),
-        button('+',()=>seek(position+step),!ready||seeking||busy,{'aria-label':'Step forward'})),
-        h('output',{'aria-label':'Trim preview time'},patterns.formatTime(Number(position.toFixed(3))))),
+        button('−',()=>stepFrames(-1),!ready||seeking||busy||frameBusy,{'aria-label':'Step backward',title:'Step backward '+step+' frame(s)'}),
+        h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[1,5,10].map(s=>h('option',{key:s,value:s},s+' frame'+(s===1?'':'s')))),
+        button('+',()=>stepFrames(1),!ready||seeking||busy||frameBusy,{'aria-label':'Step forward',title:'Step forward '+step+' frame(s)'})),
+        h('output',{'aria-label':'Trim preview time'},patterns.frameTime(position,fps))),
       h('input',{'aria-label':'Source position',className:'mc-trim-slider',type:'range',min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready||busy,onChange:e=>seek(Number(e.target.value))}),
-      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,disabled:busy,onFocus:onBeforePlay,onChange:start=>onChange({start})}),
-        button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button('Set',()=>mark('start'),!ready||seeking||busy,{'aria-label':'Set start here'})),
-      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,disabled:busy,onFocus:onBeforePlay,onChange:end=>onChange({end})}),
-        button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy,{'aria-label':'Set end here'})),
+      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>onChange({start})}),
+        button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button('Set',()=>mark('start'),!ready||seeking||busy||frameBusy,{'aria-label':'Set start here'})),
+      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>onChange({end})}),
+        button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'})),
+      frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
   }

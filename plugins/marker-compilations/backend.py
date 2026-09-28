@@ -1,4 +1,5 @@
-"""Stash raw plugin. Standard library only; FFmpeg is needed only for caching."""
+"""Stash raw plugin. Standard library only; FFmpeg renders clips and FFprobe reads frame timestamps."""
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -35,7 +36,7 @@ class Stash:
         return result['data']
 
     def scene(self, scene_id):
-        scene = self.query('query($id:ID!){findScene(id:$id){id title files{id path duration} sceneStreams{url mime_type label}}}', {'id': scene_id})['findScene']
+        scene = self.query('query($id:ID!){findScene(id:$id){id title files{id path duration frame_rate} sceneStreams{url mime_type label}}}', {'id': scene_id})['findScene']
         if not scene or not scene['files']:
             raise ValueError('Source scene {} is missing or has no files'.format(scene_id))
         return scene
@@ -190,6 +191,47 @@ def render(clip, file, document, cache, ffmpeg):
     return key
 
 
+def frame_window(file, position, ffprobe):
+    position = number(position, 'Frame position')
+    duration = number(file['duration'], 'Source duration')
+    if not 0 <= position <= duration:
+        raise ValueError('Frame position is outside the source')
+    def probe(options):
+        result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0'] + options +
+                                ['-of', 'json', file['path']], capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise ValueError('Could not read source frames: ' + result.stderr[-500:])
+        return json.loads(result.stdout)
+    metadata = probe(['-show_entries', 'stream=avg_frame_rate,r_frame_rate,time_base:format=start_time'])
+    streams = metadata['streams']
+    if not streams:
+        raise ValueError('No video frames in this source')
+    stream = streams[0]
+    rate = 0
+    for value in (stream.get('avg_frame_rate'), stream.get('r_frame_rate')):
+        try:
+            rate = float(Fraction(value))
+            if 0 < rate <= 1000:
+                break
+        except (ValueError, ZeroDivisionError, TypeError):
+            pass
+    if not 0 < rate <= 1000:
+        raise ValueError('The source frame rate is unavailable')
+    origin = float(metadata.get('format', {}).get('start_time', 0))
+    radius = max(2, 12 / rate)
+    lower, upper = max(0, position-radius), min(duration, position+radius)
+    data = probe(['-read_intervals', '{}%{}'.format(lower+origin, upper+origin),
+                  '-show_entries', 'frame=best_effort_timestamp,best_effort_timestamp_time'])
+    time_base = Fraction(stream.get('time_base', '1/1000000'))
+    times = sorted(set((float(int(frame['best_effort_timestamp']) * time_base) if 'best_effort_timestamp' in frame
+                        else float(frame['best_effort_timestamp_time'])) - origin
+                       for frame in data.get('frames', []) if 'best_effort_timestamp' in frame or 'best_effort_timestamp_time' in frame))
+    times = [t for t in times if 0 <= t < duration]
+    if not times:
+        raise ValueError('No frame timestamps are available near this position')
+    return {'times': times, 'fps': rate, 'at_start': lower == 0, 'at_end': upper == duration}
+
+
 def run(payload):
     conn, args = payload['server_connection'], payload.get('args', {})
     store = Store(Path(conn['Dir']) / 'marker-compilations')
@@ -201,6 +243,11 @@ def run(payload):
         return store.save(args['document'])
     if action == 'delete':
         return store.delete(args['id'], args['revision'])
+    if action == 'frames':
+        stash = Stash(conn)
+        file = stash.scene(args['scene_id'])['files'][0]
+        config = stash.query('{configuration{general{ffprobePath}}}')
+        return frame_window(file, args['position'], config['configuration']['general']['ffprobePath'] or 'ffprobe')
     if action not in ('resolve', 'generate'):
         raise ValueError('Choose a compilation in the Marker Compilations page first')
     document = store.get(args['id'])
@@ -224,7 +271,7 @@ def run(payload):
                     cached = key + '.mp4'
             except OSError:
                 pass  # Original streams can still work when a file is not locally accessible.
-            resolved.append(dict(clip, streams=scene['sceneStreams'], cached=cached))
+            resolved.append(dict(clip, streams=scene['sceneStreams'], cached=cached, frame_rate=file.get('frame_rate')))
         except (ValueError, OSError) as exc:
             resolved.append(dict(clip, error=str(exc)))
     return {'document': document, 'clips': resolved}
