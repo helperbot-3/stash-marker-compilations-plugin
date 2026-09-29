@@ -21,7 +21,7 @@
   const presetPhases=(key,custom)=>key.startsWith('custom:')?custom.find(p=>p.id===key.slice(7))?.phases:patterns.presets[key];
   function Field({label,children}) {return h('label',{className:'mc-field'},h('span',null,label),children);}
 
-  function TimeField({label,value,disabled,onChange,onFocus,fps}) {
+  function TimeField({label,displayLabel,value,disabled,onChange,onFocus,fps}) {
     const [draft,setDraft]=useState(()=>patterns.frameTime(value,fps)), [error,setError]=useState('');
     useEffect(()=>{setDraft(patterns.frameTime(value,fps));setError('');},[value,fps]);
     function commit(){
@@ -31,7 +31,7 @@
       setError('');setDraft(patterns.frameTime(seconds,fps));
       if(seconds!==value&&onChange(seconds)===false)setDraft(patterns.frameTime(value,fps));
     }
-    return h(Field,{label},h('input',{type:'text','aria-label':label,value:draft,disabled:disabled||!fps,onFocus,placeholder:'00:00:00:00',spellCheck:false,
+    return h(Field,{label:displayLabel||label},h('input',{type:'text','aria-label':label,value:draft,disabled:disabled||!fps,onFocus,placeholder:'00:00:00:00',spellCheck:false,
       onChange:e=>{setDraft(e.target.value);setError('');},onBlur:commit,
       onKeyDown:e=>{if(e.key==='Enter'){e.preventDefault();e.currentTarget.blur();}else if(e.key==='Escape'){setDraft(patterns.frameTime(value,fps));setError('');}}}),
       error&&h('small',{role:'alert'},error));
@@ -280,6 +280,7 @@
       second:direction=>{const v=video.current;if(v&&ready&&!busy&&!frameBusy&&!seeking&&!v.seeking)seek(v.currentTime+direction);}
     };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
+      h('div',{className:'mc-clip-trim'},
       h('h3',null,'Trim',h('span',{className:'mc-fps',title:'Source frame rate. HH:MM:SS:FF non-drop-frame timecode.'},fps?Number(fps.toFixed(3))+' fps':'Reading frame rate…')),
       target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'auto',playsInline:true,controls:true,onLoadedMetadata:loaded,
         onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();warmFrames(video.current.currentTime);},
@@ -297,9 +298,9 @@
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>changeBoundary('start',start)}),
         button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button('Set',()=>mark('start'),!ready||seeking||busy||frameBusy,{'aria-label':'Set start here'})),
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>changeBoundary('end',end)}),
-        button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'})),
+        button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button('Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'}))),
       h('div',{className:'mc-hot-zone'},
-        h('div',{className:'mc-hot-heading'},h('strong',null,'Hot zones'),
+        h('div',{className:'mc-hot-heading'},h('h3',null,'Hot zones'),
           button('+ Zone',addZone,busy||!patterns.newHotZone(clip,position),{'aria-label':'Add hot zone'}),
           zone&&button('Play zone',()=>play(true,zone),!valid||busy,{'aria-label':'Play hot zone'})),
         zones.length>0&&h('div',{className:'mc-zone-tabs'},zones.map((z,i)=>button(String(i+1),()=>setZoneSelection(i),busy,{key:i,'aria-label':'Select hot zone '+(i+1),'aria-pressed':i===zoneIndex,title:patterns.frameTime(z.start,fps)+' – '+patterns.frameTime(z.end,fps)})),
@@ -307,10 +308,10 @@
           button('Remove',()=>onChange({hot_zone:null,hot_zones:zones.filter((_,i)=>i!==zoneIndex)}),busy||patterns.sequence(clip).some(p=>p.target==='zone:'+zone?.id),{'aria-label':'Remove selected hot zone',title:'Reassign or remove steps using this zone before deleting it'})),
         zone&&h(React.Fragment,null,
           ['start','end'].map(boundary=>h('div',{className:'mc-boundary-row',key:boundary},
-            h(TimeField,{label:'Hot '+boundary,value:zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>updateZone({[boundary]:value})}),
+            h(TimeField,{label:'Hot '+boundary,displayLabel:boundary==='start'?'Start':'End',value:zone[boundary],fps,disabled:busy,onFocus:onBeforePlay,onChange:value=>updateZone({[boundary]:value})}),
             button('↦',()=>seek(zone[boundary]),!ready||busy,{'aria-label':'Jump to hot zone '+boundary}),
             button('Set',()=>mark('hot_'+boundary),!ready||seeking||busy||frameBusy,{'aria-label':'Set hot zone '+boundary+' here'}))),
-          h('small',null,'Steps choose which ranges to play.'))),
+          null)),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
       streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
@@ -322,16 +323,17 @@
     const index=Math.min(selected,steps.length-1),step=steps[index];
     const options=[['full','Full clip'],['hot','All hot zones'],...zones.map((z,i)=>['zone:'+z.id,z.name||'Hot zone '+(i+1)])];
     const label=target=>options.find(o=>o[0]===target)?.[1]||'Choose range';
+    const shortLabel=target=>target==='full'?'Full':target==='hot'?'All':zones.some(z=>'zone:'+z.id===target)?String(zones.findIndex(z=>'zone:'+z.id===target)+1):'?';
     const color=target=>target==='full'?'#94a7b8':target==='hot'?'#efbd74':['#edaf73','#75bdb6','#b59ddd','#aabd75'][Math.max(0,zones.findIndex(z=>'zone:'+z.id===target))%4];
     function update(patch){onChange(steps.map((p,i)=>i===index?{...p,...patch}:p));}
     function move(from,to){if(disabled||to<0||to>=steps.length)return;onChange(patterns.reorder(steps,from,to));setSelected(to);}
     function remove(){if(steps.length===1)return;onChange(steps.filter((_,i)=>i!==index));setSelected(Math.max(0,index-1));}
     function duplicate(){if(steps.length>=200)return;const next=steps.slice();next.splice(index+1,0,{...step});onChange(next);setSelected(index+1);}
     return h('section',{className:'mc-sequence','aria-label':'Playback sequence'},
-      h('div',{className:'mc-sequence-track'},steps.map((p,i)=>h('button',{type:'button',key:i,disabled,draggable:!disabled,'aria-label':'Step '+(i+1)+': '+label(p.target),'aria-pressed':i===index,style:{'--step-color':color(p.target)},
+      h('div',{className:'mc-sequence-track'},steps.map((p,i)=>h('button',{type:'button',key:i,disabled,draggable:!disabled,'aria-label':'Step '+(i+1)+': '+label(p.target),'aria-pressed':i===index,title:label(p.target),style:{'--step-color':color(p.target)},
         onFocus:()=>setSelected(i),onClick:()=>{setSelected(i);onPreview?.(p);},onDragStart:e=>{drag.current=i;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(i));},onDragOver:e=>e.preventDefault(),onDrop:e=>{e.preventDefault();if(drag.current!==null)move(drag.current,i);drag.current=null;},onDragEnd:()=>{drag.current=null;},
         onKeyDown:e=>{if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();e.stopPropagation();remove();}else if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='d'){e.preventDefault();e.stopPropagation();duplicate();}}},
-        h('strong',null,(i+1)+'. '+label(p.target)),h('small',null,p.repeat+'× · '+p.speed+'× speed'),Number.isFinite(clip.start)&&h('small',null,Number(patterns.duration({...clip,phases:[p]}).toFixed(2))+' s')))),
+        h('strong',null,shortLabel(p.target)),h('span',{className:'mc-step-badges'},p.repeat!==1&&h('small',null,'↻'+p.repeat),p.speed!==1&&h('small',null,p.speed+'×'))))),
       step&&h('div',{className:'mc-step-fields'},
         h(Field,{label:'Range'},h('select',{'aria-label':'Step range',value:step.target,disabled,onChange:e=>update({target:e.target.value})},!options.some(o=>o[0]===step.target)&&h('option',{value:step.target},'Choose range…'),options.map(([value,name])=>h('option',{key:value,value},name)))),
         h(Field,{label:'Repeats'},h('input',{'aria-label':'Step repeats',type:'number',min:1,max:20,value:step.repeat,disabled,onChange:e=>update({repeat:Math.max(1,Math.min(20,Number(e.target.value)||1))})})),
@@ -372,12 +374,12 @@
       h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
       h('div',{className:'mc-inspector-columns'},
         h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget,frameCache}),
-        h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('h3',null,'Repeat & speed'),
+        h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('div',{className:'mc-sequence-heading'},h('h3',null,'Sequence'),
           h('select',{'aria-label':'Apply a preset',value:'',disabled:busy,onChange:e=>{if(e.target.value)onChange({phases:patterns.applySequence(presetPhases(e.target.value,customPatterns),clip),hot_zones:patterns.identifiedZones(clip)});}},
-            h('option',{value:''},'Preset…'),presetOptions(customPatterns)),
+            h('option',{value:''},'Preset…'),presetOptions(customPatterns))),
           h(SequenceEditor,{clip,disabled:busy,onChange:phases=>onChange({phases,hot_zones:patterns.identifiedZones(clip)}),onPreview:p=>trimControls.current?.preview(p),onPlay:onPlaySequence}),
-          button('Apply to all clips',onApplyAll,busy,{className:'mc-apply-pattern'}),
-          button('Save / manage patterns',onManagePatterns,busy,{className:'mc-manage-patterns'}))));
+          h('div',{className:'mc-pattern-actions'},button('Apply to all clips',onApplyAll,busy,{className:'mc-apply-pattern'}),
+          button('Save / manage patterns',onManagePatterns,busy,{className:'mc-manage-patterns'})))));
   }
 
   function MarkerThumbnail({clip,uses}) {

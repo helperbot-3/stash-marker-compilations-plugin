@@ -104,13 +104,15 @@ with the main preview. Setting Start at or beyond End moves End forward to prese
 the previous duration, capped at the next zone or clip boundary. A start inside
 another zone or outside the clip still needs correction.
 
-**Repeat & speed** contains a mini sequence timeline. Each block independently
+The inspector places clip trim and hot zones side by side, with a full-width
+**Sequence** editor underneath. Compact boxes show **Full**, **All**, or the zone
+number, with badges only for non-default repeats and speed. Each block independently
 chooses **Full clip**, **All hot zones**, or an individual named/numbered zone,
 along with a repeat count and speed. Click a block to edit its fields and preview
 its start in the main viewport. Drag to reorder, or use the arrow buttons.
 **+ Step**, **Duplicate**, and **Remove** edit the sequence; focused blocks support
 Delete/Backspace and Cmd/Ctrl+D. **Play sequence** plays just the selected clip’s
-complete arrangement. Block widths are equal; durations are shown inside.
+complete arrangement. Block widths are equal; selecting a block reveals its range, speed, and repeats.
 
 For example: Zone 1 twice at normal speed → Zone 1 once at half speed → Full clip
 once at normal speed → Zone 2 once at half speed. All hot zones plays each zone

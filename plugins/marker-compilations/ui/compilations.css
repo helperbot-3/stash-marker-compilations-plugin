@@ -158,3 +158,21 @@
 .mc-sequence-track{display:flex;gap:5px;overflow-x:auto;padding:4px 0 8px}.mc-sequence-track>button{flex:0 0 112px;min-width:0;text-align:left;border-top:3px solid var(--step-color)!important;padding:6px!important}.mc-sequence-track strong,.mc-sequence-track small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mc-sequence-track strong{font-size:11px}.mc-sequence-track small{font-size:10px;color:var(--mc-muted)}.mc-sequence-track>button[aria-pressed=true]{background:#35414d!important;outline:1px solid var(--step-color)}.mc-step-fields{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:5px}.mc-step-fields .mc-field{margin:0}.mc-step-fields .mc-field>span{font-size:10px}.mc-sequence-actions{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}.mc-sequence-actions button{font-size:10px!important;padding:4px 6px!important}.mc-hot-zone>input,.mc-hot-zone input[aria-label="Zone name"]{width:100%;padding:3px 5px!important;font-size:11px!important;margin:2px 0}.mc-sequence [role=alert]{color:#efa6a1;font-size:11px}
 
 .mc-zone-tabs input[aria-label="Zone name"]{flex:1;min-width:40px;width:65px;max-width:110px;margin:0!important}
+
+/* Two trim columns, then a full-width sequence. */
+.mc-inspector .mc-inspector-columns{display:block;padding:10px}
+.mc-inspector .mc-trimmer{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 12px}
+.mc-clip-trim{min-width:0}.mc-inspector .mc-hot-zone{min-width:0;margin:0;padding:0 0 0 12px;border-top:0;border-left:1px solid var(--mc-border)}
+.mc-hot-heading h3{margin:0!important}.mc-hot-heading{min-height:24px}.mc-inspector .mc-trimmer>select{grid-column:1;font-size:10px!important}.mc-inspector .mc-trimmer>p{grid-column:1/-1;margin:3px 0}
+.mc-inspector .mc-inspector-columns .mc-pattern{border-left:0;border-top:1px solid var(--mc-border);padding:8px 0 0;margin:8px 0 0}
+.mc-sequence-heading{display:flex;gap:10px;align-items:center;justify-content:space-between}.mc-sequence-heading h3{margin:0}.mc .mc-sequence-heading select{width:180px;max-width:65%}
+.mc-sequence-track{padding:6px 1px;gap:6px}.mc-sequence-track>button{flex:0 0 56px;min-height:46px;text-align:center}.mc-sequence-track strong{font-size:14px}.mc-step-badges{display:flex;justify-content:center;gap:4px;min-height:12px}.mc-step-badges small{font-size:9px}
+.mc-pattern-actions{display:flex;gap:12px;align-items:center}.mc .mc-pattern-actions button{margin:0;padding:3px 0;display:inline-block}
+@media(max-width:480px){.mc-inspector .mc-trimmer{grid-template-columns:minmax(0,1fr);gap:8px}.mc-inspector .mc-hot-zone{border-left:0;border-top:1px solid var(--mc-border);padding:8px 0 0}.mc-inspector .mc-trimmer>select{grid-column:1}}
+
+.mc-inspector .mc-boundary-row .mc-field{grid-template-columns:28px minmax(0,1fr)}
+.mc-inspector .mc-boundary-row{gap:3px;margin:3px 0}.mc-inspector .mc-boundary-row input{font-size:11px!important;min-width:0!important;height:25px;padding:3px!important}
+.mc-inspector .mc-boundary-row button{padding:3px 4px;font-size:10px;height:25px}
+.mc-inspector .mc-step-fields input,.mc-inspector .mc-step-fields select{height:25px;padding:3px 5px!important;font-size:11px!important}
+.mc-clip-trim h3{margin-bottom:4px}.mc-inspector .mc-trim-controls{margin:2px 0;gap:3px}.mc-inspector .mc-trim-controls button{padding:3px 4px;font-size:10px}.mc-inspector .mc-trim-slider{margin:4px 0;height:12px}
+.mc-inspector .mc-sequence-track>button{min-height:40px;padding:4px!important}.mc-inspector .mc-sequence-actions{margin:4px 0}.mc-inspector .mc-sequence-heading select{padding:3px 5px!important}.mc-inspector .mc-pattern-actions button{font-size:10px!important}
