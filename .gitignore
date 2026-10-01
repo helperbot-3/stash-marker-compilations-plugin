@@ -4,3 +4,4 @@ _site/
 __pycache__/
 *.pyc
 plugins/marker-compilations/cache/
+plugins/marker-compilations/exports/

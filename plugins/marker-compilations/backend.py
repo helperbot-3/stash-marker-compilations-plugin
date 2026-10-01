@@ -1,5 +1,6 @@
 """Stash raw plugin. Standard library only; FFmpeg renders clips and FFprobe reads frame timestamps."""
 import re
+import shutil
 from fractions import Fraction
 import hashlib
 import json
@@ -37,7 +38,7 @@ class Stash:
         return result['data']
 
     def scene(self, scene_id):
-        scene = self.query('query($id:ID!){findScene(id:$id){id title files{id path duration frame_rate} sceneStreams{url mime_type label}}}', {'id': scene_id})['findScene']
+        scene = self.query('query($id:ID!){findScene(id:$id){id title files{id path duration frame_rate} performers{id} tags{id} sceneStreams{url mime_type label}}}', {'id': scene_id})['findScene']
         if not scene or not scene['files']:
             raise ValueError('Source scene {} is missing or has no files'.format(scene_id))
         return scene
@@ -158,6 +159,7 @@ class Store:
         root.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(root / 'compilations.sqlite3', timeout=30)
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS exports (id TEXT PRIMARY KEY, record TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, revision INTEGER NOT NULL, phases TEXT NOT NULL)')
 
     def list_patterns(self):
@@ -323,11 +325,274 @@ def frame_window(file, position, ffprobe):
     return {'times': times, 'fps': rate, 'at_start': lower == 0, 'at_end': upper == duration, 'timestamp_source': timestamp_source}
 
 
+def export_get(store, id_):
+    row = store.db.execute('SELECT record FROM exports WHERE id=?', (id_,)).fetchone()
+    if not row:
+        raise ValueError('Rendered version not found')
+    return json.loads(row[0])
+
+
+def export_put(store, record):
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        previous = store.db.execute('SELECT record FROM exports WHERE id=?', (record['id'],)).fetchone()
+        if previous:
+            for key in ('job_id', 'import_job', 'scan_job'):
+                if key not in record and key in json.loads(previous[0]):
+                    record[key] = json.loads(previous[0])[key]
+        store.db.execute('INSERT OR REPLACE INTO exports VALUES (?,?)', (record['id'], json.dumps(record)))
+    return record
+
+
+def export_patch(store, id_, **changes):
+    # Serialize short updates with the worker's progress writes.
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        record = export_get(store, id_)
+        record.update(changes)
+        store.db.execute('UPDATE exports SET record=? WHERE id=?', (json.dumps(record), id_))
+    return record
+
+
+def export_plan(document):
+    result = []
+    for clip in document['clips']:
+        zones = sorted(clip.get('hot_zones', [clip['hot_zone']] if clip.get('hot_zone') else []), key=lambda z: z['start'])
+        zones = [dict(z, id=z.get('id', 'legacy-'+str(i))) for i, z in enumerate(zones)]
+        phases = clip.get('phases') or [{'repeat': 1, 'speed': 1, 'target': 'full'}]
+        total = sum(p['repeat'] for p in phases)
+        ordinal = 0
+        for phase in phases:
+            for repeat in range(phase['repeat']):
+                target = phase.get('target') or (phase.get('ranges') or ['auto'] * phase['repeat'])[repeat]
+                if target == 'auto':
+                    target = 'hot' if 0 < ordinal < total-1 else 'full'
+                ranges = [clip] if target == 'full' else (zones or [clip]) if target == 'hot' else [z for z in zones if target == 'zone:'+z['id']]
+                if not ranges:
+                    raise ValueError('Choose a range for every missing hot zone before rendering')
+                for zone in ranges:
+                    result.append({'scene_id': clip['scene_id'], 'start': zone['start'], 'end': zone['end'], 'speed': phase['speed']})
+                ordinal += 1
+    if not result:
+        raise ValueError('Add at least one clip before rendering')
+    return result
+
+
+def export_config(stash, root):
+    general = stash.query('{configuration{general{ffmpegPath ffprobePath stashes{path excludeVideo}}}}')['configuration']['general']
+    libraries = [str(Path(s['path']).resolve()) for s in general['stashes'] if not s['excludeVideo']]
+    return {'libraries': libraries, 'private_directory': str(root / 'renders'), 'ffmpeg': general['ffmpegPath'] or 'ffmpeg', 'ffprobe': general['ffprobePath'] or 'ffprobe'}
+
+
+def export_link(record, plugin_dir):
+    path = Path(record['path'])
+    if not path.is_file():
+        return False
+    assets = plugin_dir / 'exports'
+    assets.mkdir(parents=True, exist_ok=True)
+    link = assets / (record['id']+'.mp4')
+    if not link.exists():
+        try:
+            link.symlink_to(path)
+        except OSError:
+            os.link(path, link)
+    return True
+
+
+def prepare_export(store, stash, root, args):
+    doc = store.get(args['id'])
+    export_plan(doc)
+    settings = export_config(stash, root)
+    quality = args.get('quality', '1080p')
+    if quality not in ('720p', '1080p'):
+        raise ValueError('Choose 720p or 1080p')
+    library = bool(args.get('library', True))
+    if library:
+        directory = str(Path(args.get('directory', '')).resolve())
+        if directory not in settings['libraries']:
+            raise ValueError('Choose a configured video library folder')
+        output = Path(directory) / 'Marker Compilations'
+    else:
+        output = root / 'renders'
+    output.mkdir(parents=True, exist_ok=True)
+    id_ = str(uuid.uuid4())
+    name = re.sub(r'[^\w -]', '', doc['name'], flags=re.UNICODE).strip()[:70] or 'Compilation'
+    path = output / ('{}-r{}-{}.mp4'.format(name, doc['revision'], id_[:8]))
+    return export_put(store, {'id': id_, 'compilation_id': doc['id'], 'revision': doc['revision'], 'name': doc['name'],
+                              'snapshot': doc, 'quality': quality, 'audio': bool(args.get('audio', True)), 'library': library,
+                              'copy_metadata': bool(args.get('copy_metadata', False)), 'path': str(path.resolve()),
+                              'status': 'queued', 'progress': 0, 'created': time.time()})
+
+
+def export_encode(args, work):
+    result = subprocess.run([sys.executable, __file__, '--export-worker', str(os.getpid()), str(work)] + args,
+                            capture_output=True, text=True, timeout=7260)
+    if result.returncode:
+        raise ValueError('Video rendering failed: '+result.stderr[-1500:])
+
+
+def render_export(store, stash, root, plugin_dir, id_):
+    record = export_get(store, id_)
+    if record['status'] != 'queued':
+        raise ValueError('This rendered version has already been started')
+    record.update(status='rendering', progress=0)
+    export_put(store, record)
+    work = root / 'render-work' / id_
+    work.mkdir(parents=True, exist_ok=True)
+    output = Path(record['path'])
+    partial = output.parent / ('.'+id_+'.partial')
+    try:
+        config = export_config(stash, root)
+        plan = export_plan(record['snapshot'])
+        sources, metadata = {}, {}
+        for clip in record['snapshot']['clips']:
+            scene, file = source(clip, stash)
+            sources[clip['scene_id']] = file
+            metadata[clip['scene_id']] = scene
+        width, height = (1280, 720) if record['quality'] == '720p' else (1920, 1080)
+        segments, files = {}, []
+        for index, part in enumerate(plan):
+            key = (part['scene_id'], part['start'], part['end'], part['speed'])
+            if key not in segments:
+                segment = work / ('segment-'+str(len(segments))+'.mp4')
+                file = sources[part['scene_id']]
+                length = part['end']-part['start']
+                duration = max(1/30, round(length/part['speed']*30)/30)
+                probe = subprocess.run([config['ffprobe'], '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=index', '-of', 'json', file['path']], capture_output=True, text=True, check=True, timeout=30)
+                audio = bool(json.loads(probe.stdout).get('streams'))
+                command = [config['ffmpeg'], '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-ss', str(part['start']), '-t', str(length), '-i', file['path']]
+                if record['audio'] and not audio:
+                    command += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
+                vf = 'setpts=(PTS-STARTPTS)/{},scale={}:{}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={}:{}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=1'.format(part['speed'], width, height, width, height)
+                command += ['-map', '0:v:0', '-vf', vf, '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p', '-video_track_timescale', '90000']
+                if record['audio']:
+                    speed, tempo = part['speed'], []
+                    while speed < .5:
+                        tempo.append('atempo=0.5'); speed /= .5
+                    while speed > 2:
+                        tempo.append('atempo=2'); speed /= 2
+                    tempo.append('atempo='+str(speed))
+                    af = ','.join(['asetpts=PTS-STARTPTS'] + (tempo if audio else []) + ['aresample=48000', 'apad', 'atrim=duration='+str(duration)])
+                    command += ['-map', '0:a:0' if audio else '1:a:0', '-af', af, '-ac', '2', '-c:a', 'aac', '-b:a', '160k']
+                else:
+                    command += ['-an']
+                command += ['-t', str(duration), str(segment)]
+                export_encode(command, work)
+                segments[key] = segment
+            files.append(segments[key])
+            record['progress'] = .9*(index+1)/len(plan)
+            export_put(store, record)
+            print('\x01p\x02'+str(record['progress']), file=sys.stderr)
+        manifest = work / 'sequence.txt'
+        manifest.write_text(''.join("file '{}'\nduration {:.9f}\n".format(f.name, max(1/30, round((p['end']-p['start'])/p['speed']*30)/30)) for f, p in zip(files, plan)))
+        final = work / 'finished.mp4'
+        export_encode([config['ffmpeg'], '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-f', 'concat', '-safe', '0', '-i', str(manifest), '-c', 'copy', '-movflags', '+faststart', str(final)], work)
+        probe = subprocess.run([config['ffprobe'], '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', str(final)], capture_output=True, text=True, check=True, timeout=30)
+        info = json.loads(probe.stdout)
+        duration = float(info['format']['duration'])
+        expected = sum(max(1/30, round((p['end']-p['start'])/p['speed']*30)/30) for p in plan)
+        if abs(duration-expected) > max(.5, len(plan)*.06):
+            raise ValueError('Rendered duration differs from the saved sequence')
+        if duration <= 0 or not any(s['codec_type'] == 'video' for s in info['streams']):
+            raise ValueError('The rendered video could not be verified')
+        shutil.copyfile(final, partial)
+        os.replace(partial, output)
+        record.update(status='ready', progress=1, duration=duration, bytes=output.stat().st_size)
+        if record['copy_metadata']:
+            record['performer_ids'] = sorted({p['id'] for scene in metadata.values() for p in scene.get('performers', [])})
+            record['tag_ids'] = sorted({p['id'] for scene in metadata.values() for p in scene.get('tags', [])})
+        export_put(store, record)
+        export_link(record, plugin_dir)
+        if record['library']:
+            request_export_import(store, stash, id_)
+        return {'id': id_, 'path': str(output)}
+    except Exception as exc:
+        record.update(status='import_error' if output.exists() else 'failed', error=str(exc))
+        export_put(store, record)
+        raise
+    finally:
+        partial.unlink(missing_ok=True)
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def request_export_import(store, stash, id_):
+    record = export_get(store, id_)
+    if not record['library'] or not Path(record['path']).exists():
+        raise ValueError('This version is not ready for library import')
+    scan = stash.query('mutation($input:ScanMetadataInput!){metadataScan(input:$input)}', {'input': {'paths': [str(Path(record['path']).parent)], 'scanGenerateCovers': True}})['metadataScan']
+    record.update(status='importing', scan_job=scan, error=None)
+    export_put(store, record)
+    job = stash.query('mutation($args:Map!){runPluginTask(plugin_id:"marker-compilations",task_name:"Render compilation video",args_map:$args)}', {'args': {'action': 'finalize_export', 'export_id': id_}})['runPluginTask']
+    return export_patch(store, id_, import_job=job)
+
+
+def finalize_export(store, stash, id_):
+    record = export_get(store, id_)
+    try:
+        scenes = stash.query('query($filter:SceneFilterType!){findScenes(scene_filter:$filter,filter:{per_page:-1}){scenes{id files{path}}}}', {'filter': {'path': {'value': record['path'], 'modifier': 'EQUALS'}}})['findScenes']['scenes']
+        scene = next((s for s in scenes if any(Path(f['path']).resolve() == Path(record['path']).resolve() for f in s['files'])), None)
+        if not scene:
+            raise ValueError('The scan has not imported this video. Check Stash Tasks, then retry the library import.')
+        tags = stash.query('{findTags(tag_filter:{name:{value:"Compilation",modifier:EQUALS}},filter:{per_page:-1}){tags{id}}}')['findTags']['tags']
+        tag = tags[0]['id'] if tags else stash.query('mutation{tagCreate(input:{name:"Compilation"}){id}}')['tagCreate']['id']
+        details = 'Rendered compilation: {}\nProject ID: {}\nSaved revision: {}\nEdit in Marker Compilations (/marker-compilations).\nSource scenes: {}'.format(record['name'], record['compilation_id'], record['revision'], ', '.join(sorted({c['scene_id'] for c in record['snapshot']['clips']})))
+        update = {'id': scene['id'], 'title': record['name'], 'details': details, 'tag_ids': sorted(set([tag]+record.get('tag_ids', [])))}
+        if record.get('copy_metadata'):
+            update['performer_ids'] = record.get('performer_ids', [])
+        stash.query('mutation($input:SceneUpdateInput!){sceneUpdate(input:$input){id}}', {'input': update})
+        record.update(status='ready', scene_id=scene['id'], error=None)
+    except Exception as exc:
+        record.update(status='import_error', error=str(exc))
+    return export_put(store, record)
+
+
+def list_exports(store, stash, root, plugin_dir, compilation_id):
+    records = [json.loads(r[0]) for r in store.db.execute('SELECT record FROM exports ORDER BY rowid DESC')]
+    result = []
+    for record in records:
+        if record['compilation_id'] != compilation_id:
+            continue
+        if record['status'] in ('queued', 'rendering') and record.get('job_id'):
+            job = stash.query('query($id:ID!){findJob(input:{id:$id}){status error}}', {'id': record['job_id']})['findJob']
+            record = export_get(store, record['id'])
+            if record['status'] in ('queued', 'rendering') and (not job or job['status'] in ('CANCELLED', 'FAILED', 'FINISHED')):
+                record.update(status='cancelled' if job and job['status']=='CANCELLED' else 'failed', error=(job or {}).get('error') or 'Rendering was interrupted. Start a new render to retry.')
+                export_put(store, record)
+        if record['status'] == 'importing' and record.get('import_job'):
+            job = stash.query('query($id:ID!){findJob(input:{id:$id}){status error}}', {'id': record['import_job']})['findJob']
+            record = export_get(store, record['id'])
+            if record['status'] == 'importing' and (not job or job['status'] in ('CANCELLED', 'FAILED', 'FINISHED')):
+                record = export_patch(store, record['id'], status='import_error', error='Library import was interrupted. Retry import to finish adding the video.')
+        if record['status'] == 'queued' and not record.get('job_id') and time.time()-record['created'] > 120:
+            record = export_patch(store, record['id'], status='failed', error='The render could not be queued. Start a new render to retry.')
+        playable = export_link(record, plugin_dir) if record['status'] not in ('queued', 'rendering') else False
+        result.append({k: v for k, v in record.items() if k not in ('snapshot', 'performer_ids', 'tag_ids')} | {'playable': playable})
+    return result
+
+
 def run(payload):
     conn, args = payload['server_connection'], payload.get('args', {})
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    root = Path(conn['Dir']) / 'marker-compilations'
+    if action in ('export_config', 'prepare_export', 'list_exports', 'render_export', 'finalize_export', 'retry_import', 'export_job'):
+        stash = Stash(conn)
+        if action == 'export_config':
+            return export_config(stash, root)
+        if action == 'prepare_export':
+            return {k: v for k, v in prepare_export(store, stash, root, args).items() if k != 'snapshot'}
+        if action == 'list_exports':
+            return list_exports(store, stash, root, Path(conn['PluginDir']), args['id'])
+        if action == 'render_export':
+            return render_export(store, stash, root, Path(conn['PluginDir']), args['export_id'])
+        if action == 'finalize_export':
+            return finalize_export(store, stash, args['export_id'])
+        if action == 'retry_import':
+            return request_export_import(store, stash, args['export_id'])
+        export_patch(store, args['export_id'], job_id=args['job_id'])
+        return True
+
     if action == 'list_patterns':
         return store.list_patterns()
     if action == 'save_pattern':
@@ -389,7 +654,10 @@ def ffmpeg_worker():
                 if os.getppid() != parent or time.monotonic() > deadline:
                     child.kill()
                     child.communicate()
-                    temporary.unlink(missing_ok=True)
+                    if sys.argv[1] == '--export-worker':
+                        shutil.rmtree(temporary, ignore_errors=True)
+                    else:
+                        temporary.unlink(missing_ok=True)
                     sys.stderr.write('Clip generation cancelled or timed out')
                     return 1
     finally:
@@ -399,7 +667,7 @@ def ffmpeg_worker():
 
 
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--ffmpeg-worker':
+    if len(sys.argv) > 1 and sys.argv[1] in ('--ffmpeg-worker', '--export-worker'):
         sys.exit(ffmpeg_worker())
     try:
         print(json.dumps({'output': run(json.load(sys.stdin))}))

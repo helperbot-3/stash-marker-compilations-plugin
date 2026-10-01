@@ -8,6 +8,7 @@
   const {gql, useApolloClient} = api.libraries.Apollo;
   const Link = api.libraries.ReactRouterDOM.Link;
   const OP = gql`mutation CompilationOperation($args:Map!){runPluginOperation(plugin_id:"marker-compilations",args:$args)}`;
+  const RENDER_TASK = gql`mutation RenderCompilation($args:Map!){runPluginTask(plugin_id:"marker-compilations",task_name:"Render compilation video",args_map:$args)}`;
   const TASK = gql`mutation CompilationGenerate($args:Map!){runPluginTask(plugin_id:"marker-compilations",task_name:"Generate compilation clips",args_map:$args)}`;
   const MARKERS = gql`query CompilationMarkers($filter:FindFilterType,$markers:SceneMarkerFilterType){findSceneMarkers(filter:$filter,scene_marker_filter:$markers){count scene_markers{id title seconds end_seconds screenshot primary_tag{id name} tags{id name} scene{id title files{duration}}}}}`;
   const TAGS = gql`query CompilationTags{findTags(filter:{per_page:-1,sort:"name",direction:ASC}){tags{id name}}}`;
@@ -437,6 +438,8 @@
     const [markers,setMarkers]=useState([]), [tags,setTags]=useState([]), [query,setQuery]=useState(''), [tag,setTag]=useState('');
     const [page,setPage]=useState(1), [count,setCount]=useState(0), [defaultDuration,setDefaultDuration]=useState(20), [defaultPattern,setDefaultPattern]=useState('once');
     const [busy,setBusy]=useState(false), [loading,setLoading]=useState(false), [message,setMessage]=useState(''), [player,setPlayer]=useState(null);
+    const [exports,setExports]=useState([]), [renderConfig,setRenderConfig]=useState(null), [renderQuality,setRenderQuality]=useState('1080p'), [renderAudio,setRenderAudio]=useState(true), [renderLibrary,setRenderLibrary]=useState(true), [renderDirectory,setRenderDirectory]=useState(''), [copyMetadata,setCopyMetadata]=useState(false), [renderedVideo,setRenderedVideo]=useState(null);
+    const renderedRef=useRef(null);
     const [job,setJob]=useState(null), [jobStatus,setJobStatus]=useState(''), [fullscreen,setFullscreen]=useState(false);
     const [seekRequest,setSeekRequest]=useState({position:0,serial:0,play:true});
     const dropMediaRef=useRef(null), request=useRef(0), monitor=useRef(null), serial=useRef(0), playerControls=useRef(null), trimControls=useRef(null);
@@ -445,6 +448,19 @@
     const media=patterns.catalog(doc), trimActive=view==='editor'&&inspectorOpen&&preview==='trim'&&!!clip;
     const progress=useCallback(position=>setCurrent(position),[]), activate=useCallback(index=>setActive(index),[]);
     async function op(args){const r=await client.mutate({mutation:OP,variables:{args}});return r.data.runPluginOperation;}
+    async function refreshExports(id=doc.id){if(id)setExports(await op({action:'list_exports',id}));else setExports([]);}
+    useEffect(()=>{let disposed=false;async function poll(){try{const items=doc.id?await op({action:'list_exports',id:doc.id}):[];if(!disposed)setExports(items);}catch(e){if(!disposed&&modal==='render')setMessage(e.message);}}poll();const timer=setInterval(poll,4000);return()=>{disposed=true;clearInterval(timer);};},[doc.id,modal==='render']);
+    async function openRender(){const config=await op({action:'export_config'});setRenderConfig(config);setRenderDirectory(d=>config.libraries.includes(d)?d:config.libraries[0]||'');await refreshExports();setModal('render');}
+    async function startRender(){
+      if(doc.clips.some(c=>patterns.missingRanges(c)))throw Error('Choose ranges for missing zones before rendering.');
+      const saved=dirty||!doc.id?await save():doc;
+      const result=await op({action:'prepare_export',id:saved.id,quality:renderQuality,audio:renderAudio,library:renderLibrary,directory:renderDirectory,copy_metadata:copyMetadata});
+      const queued=await client.mutate({mutation:RENDER_TASK,variables:{args:{action:'render_export',export_id:result.id}}});
+      await op({action:'export_job',export_id:result.id,job_id:queued.data.runPluginTask});
+      await refreshExports(saved.id);setMessage('Rendering queued. You can close this dialog and keep editing.');
+    }
+    function exportURL(item){return new URL('plugin/marker-compilations/assets/exports/'+item.id+'.mp4',document.baseURI).href;}
+    function watchExport(item){stop();setMessage('');setInspectorOpen(false);setPreview('compilation');setRenderedVideo(item);setModal(null);}
     async function load(){setDocuments(await op({action:'list'}));}
     useEffect(()=>{op({action:'list_patterns'}).then(setCustomPatterns).catch(e=>setMessage(e.message));},[]);
     async function managePatterns(){setCustomPatterns(await op({action:'list_patterns'}));setModal('patterns');}
@@ -493,7 +509,7 @@
       }catch(e){if(!disposed)setJobStatus('Could not refresh generation status: '+e.message);}}
       poll();const timer=setInterval(poll,2000);return()=>{disposed=true;clearInterval(timer);};
     },[job]);
-    function stop(){setPlayer(null);setActive(null);setCurrent(0);}
+    function stop(){setRenderedVideo(null);setPlayer(null);setActive(null);setCurrent(0);}
     function edit(patch){setDoc(d=>({...d,media:patterns.catalog(d),...patch}));setDirty(true);stop();}
     function choose(next,discard=false){if(dirty&&!discard&&!window.confirm('Discard unsaved changes?'))return false;setInspectorOpen(false);setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();setMessage('');return true;}
     async function perform(work){setBusy(true);setMessage('');try{await work();}catch(e){setMessage(e.message);}finally{setBusy(false);}}
@@ -551,6 +567,7 @@
     });
     function move(from,to){if(from===to)return;edit({clips:patterns.reorder(doc.clips,from,to)});setSelected(to);setTrimSession(n=>n+1);}
     async function play(position=0,onlyIndex=null){
+      setRenderedVideo(null);
       if((onlyIndex===null?doc.clips:[doc.clips[onlyIndex]]).some(c=>patterns.missingRanges(c)))throw Error('Choose ranges for missing zones before playback.');
       trimControls.current?.pause();setPreview('compilation');
       const saved=dirty||!doc.id?await save():doc;
@@ -576,6 +593,7 @@
     }
     function seek(position){
       if(busy)return;
+      if(renderedVideo){const video=renderedRef.current;if(video){video.currentTime=Math.min(position,video.duration||0);setCurrent(video.currentTime);}return;}
       if(player){setSeekRequest({position,serial:++serial.current,play:true});setCurrent(position);}
       else perform(()=>play(position));
     }
@@ -587,7 +605,7 @@
     function toggleTimeline(){
       if(busy||modal||!doc.clips.length)return;
       trimControls.current?.pause();
-      if(player)playerControls.current?.toggle();else perform(()=>play(current));
+      if(renderedVideo){const video=renderedRef.current;if(video)video.paused?video.play().catch(()=>setMessage('Press play on the video to begin.')):video.pause();}else if(player)playerControls.current?.toggle();else perform(()=>play(current));
     }
     useEffect(()=>{
       function hotkey(e){
@@ -633,7 +651,7 @@
         view==='editor'?h(React.Fragment,null,h('input',{className:'mc-name','aria-label':'Compilation name',value:doc.name,maxLength:200,disabled:busy,onChange:e=>edit({name:e.target.value})}),
           h('span',{className:'mc-save-state',role:'status'},dirty?'Unsaved':doc.id?'Saved':'New'),
           button('Save',()=>perform(async()=>{await save();setMessage('Compilation saved.');}),busy),button('+ Add markers',()=>setModal('markers'),busy,{className:'mc-primary'})):
-          h(React.Fragment,null,h('span',{className:'mc-save-state'},documents.length+' saved'),button('New compilation',()=>{if(choose(blank()))setView('editor');},busy,{className:'mc-primary'}))),
+          h(React.Fragment,null,h('span',{className:'mc-save-state'},documents.length+' saved'),button('New compilation',()=>{if(choose(blank()))setView('editor');},busy,{className:'mc-primary'})),button('Render video',()=>perform(openRender),busy||!doc.clips.length)),
       message&&h('div',{className:'mc-notice',role:'status'},message,button('×',()=>setMessage(''),false,{'aria-label':'Dismiss message'})),
       h('div',{className:'mc-workspace'},
         view==='viewer'&&h('aside',{className:'mc-library','aria-label':'Saved compilations'},h('div',{className:'mc-panel-heading'},h('h2',null,'Saved compilations'),button('Refresh',()=>perform(reload),busy)),
@@ -646,18 +664,18 @@
           h('div',{id:'mc-project-media',hidden:mediaCollapsed},h(MediaCatalog,{media,clips:doc.clips,busy,onInsert:insertMedia,onDrop:(key,x,y)=>dropMediaRef.current?.(key,x,y)}))),
         h('section',{className:'mc-monitor',ref:monitor,'aria-label':'Preview viewport'},
           h('div',{className:'mc-monitor-heading'},h('div',null,h('span',{className:'mc-eyebrow'},'COMPILATION PREVIEW'),h('strong',null,trimActive?'Trim: '+clip.title:doc.name)),
-            h('div',{className:'mc-inline'},view==='editor'&&h('div',{className:'mc-preview-modes','aria-label':'Preview mode'},button('Compilation',closeInspector,busy,{'aria-pressed':!trimActive}),button('Trim selected clip',showTrim,busy||!clip,{'aria-pressed':trimActive})),!trimActive&&h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Prepared clips')),
+            h('div',{className:'mc-inline'},view==='editor'&&h('div',{className:'mc-preview-modes','aria-label':'Preview mode'},button('Compilation',closeInspector,busy,{'aria-pressed':!trimActive}),button('Trim selected clip',showTrim,busy||!clip,{'aria-pressed':trimActive})),!trimActive&&!renderedVideo&&h('select',{'aria-label':'Playback mode',value:mode,disabled:busy,onChange:e=>{stop();setMode(e.target.value);}},h('option',{value:'source'},'Source videos'),h('option',{value:'cache'},'Prepared clips')),
               button(fullscreen?'Exit fullscreen':'Fullscreen',toggleFullscreen,false))),
           h('div',{className:'mc-main-trim',ref:setTrimTarget,hidden:!trimActive}),
-          !trimActive&&(player?h(Player,{key:player.key,clips:player.clips,mode:player.mode,seekRequest,onProgress:progress,onActive:activate,onStop:stop,controls:playerControls}):
+          !trimActive&&(renderedVideo?h('div',{className:'mc-rendered-player'},h('video',{ref:renderedRef,src:exportURL(renderedVideo),controls:true,playsInline:true,preload:'metadata',onError:()=>setMessage('This rendered video could not be loaded. Check that the output file is still available.'),onTimeUpdate:e=>setCurrent(e.target.currentTime)}),h('div',{className:'mc-transport'},h('span',null,'Rendered · revision '+renderedVideo.revision),button('Back to source preview',stop,false),renderedVideo.scene_id&&h(Link,{to:'/scenes/'+renderedVideo.scene_id},'Open scene'))):player?h(Player,{key:player.key,clips:player.clips,mode:player.mode,seekRequest,onProgress:progress,onActive:activate,onStop:stop,controls:playerControls}):
             h(React.Fragment,null,h('div',{className:'mc-video-surface mc-idle'},poster&&h('img',{src:poster,alt:''}),h('div',null,h('span',{className:'mc-idle-glyph','aria-hidden':true},'▷'),
               h('strong',null,doc.clips.length?'Ready when you are':'Your compilation starts here'),h('p',null,doc.clips.length?'Play the full sequence, or double-click a timeline clip to edit it.':'Add markers to build a timeline of your favourite moments.'),
               !!doc.clips.length&&button('Play compilation',()=>perform(()=>play(0)),busy,{className:'mc-primary'}))),
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause')))),
-          view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(total)),h('span',null,mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
+          view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(renderedVideo?.duration||total)),h('span',null,renderedVideo?'Playing rendered video':mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
         view==='editor'&&inspectorOpen&&clip&&h('div',{className:'mc-edit-sidebar'},
           h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,customPatterns,onManagePatterns:()=>perform(managePatterns),onPlaySequence:()=>perform(()=>play(0,selected)),trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.applySequence(patterns.portableSequence(clip),c),hot_zones:patterns.identifiedZones(c)}))})}))),
-      view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
+      view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):!renderedVideo&&h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
       modal==='markers'&&dialog('Add markers to project',h(React.Fragment,null,
@@ -673,6 +691,27 @@
         h('div',{className:'mc-pagination'},button('Previous page',()=>setPage(page-1),page===1||loading),h('span',null,'Page '+page),button('Next page',()=>setPage(page+1),page*24>=count||loading))),
         h(React.Fragment,null,h('span',{role:'status'},media.length+' markers in project'),button('Done',()=>setModal(null),false,{className:'mc-primary'})),'xl'),
       modal==='patterns'&&dialog('Repetition patterns',h(PatternManager,{initial:clip?patterns.portableSequence(clip):patterns.presets.once,zoneCount:clip?patterns.hotZones(clip).length:0,items:customPatterns,onSave:savePattern,onDelete:deletePattern}),button('Done',()=>setModal(null),false)),
+      modal==='render'&&dialog('Render compilation video',h(React.Fragment,null,
+        h('div',{className:'mc-render-options'},
+          h(Field,{label:'Quality'},h('select',{value:renderQuality,onChange:e=>setRenderQuality(e.target.value)},h('option',{value:'720p'},'720p · smaller file'),h('option',{value:'1080p'},'1080p · higher detail'))),
+          h('label',null,h('input',{type:'checkbox',checked:renderAudio,onChange:e=>setRenderAudio(e.target.checked)}),' Include audio'),
+          h('label',null,h('input',{type:'checkbox',checked:renderLibrary,onChange:e=>setRenderLibrary(e.target.checked)}),' Add to Stash library'),
+          renderLibrary&&h(Field,{label:'Library folder'},h('select',{value:renderDirectory,onChange:e=>setRenderDirectory(e.target.value)},h('option',{value:''},'Choose a video library folder'),(renderConfig?.libraries||[]).map(path=>h('option',{key:path,value:path},path)))),
+          renderLibrary&&h('label',null,h('input',{type:'checkbox',checked:copyMetadata,onChange:e=>setCopyMetadata(e.target.checked)}),' Copy source performers and tags')),
+        h('p',{className:'mc-muted'},renderLibrary?'Saved in a Marker Compilations subfolder and imported as a regular scene.':'Saved outside the scene library in '+(renderConfig?.private_directory||'the persistent plugin data folder')+'.'),
+        h('p',{className:'mc-muted'},'MP4 · 30 fps · hard cuts · pitch-preserving speed changes. Each render creates a new version of the saved sequence.'),
+        button('Start rendering',()=>perform(startRender),busy||!doc.clips.length||(renderLibrary&&!renderDirectory),{className:'mc-primary'}),
+        message&&h('p',{role:'status'},message),
+        h('h3',null,'Rendered versions'),
+        !exports.length&&h('p',null,'No rendered videos yet.'),
+        exports.map(item=>h('article',{className:'mc-render-version',key:item.id},
+          h('div',null,h('strong',null,item.name+' · revision '+item.revision),h('small',null,item.quality+' · '+new Date(item.created*1000).toLocaleString()+(item.revision!==doc.revision||dirty?' · Changes since this render':''))),
+          h('p',{role:'status'},item.status==='rendering'?'Rendering · '+Math.round(item.progress*100)+'%':item.status==='importing'?'Importing into Stash…':item.status==='import_error'?'Video ready · library import needs attention':item.status),
+          ['queued','rendering'].includes(item.status)&&h('progress',{max:1,value:item.progress}),
+          item.error&&h('p',{role:'alert'},item.error),
+          h('div',{className:'mc-inline'},item.playable&&button('Watch rendered video',()=>watchExport(item),false),item.playable&&h('a',{href:exportURL(item),download:item.name+'.mp4'},'Download'),item.scene_id&&h(Link,{to:'/scenes/'+item.scene_id},'Open scene'),
+            ['queued','rendering'].includes(item.status)&&item.job_id&&button('Cancel render',()=>perform(async()=>{await client.mutate({mutation:gql`mutation($id:ID!){stopJob(job_id:$id)}`,variables:{id:item.job_id}});await refreshExports();}),busy),
+            item.status==='import_error'&&item.library&&button('Retry library import',()=>perform(async()=>{await op({action:'retry_import',export_id:item.id});await refreshExports();}),busy))))) ,button('Done',()=>setModal(null),false),'lg'),
       modal==='cache'&&dialog('Prepare clips for playback',h(React.Fragment,null,h('p',null,'Optional: create a separate video file for each trimmed interval. This can help when playing the original source videos is unreliable, but uses extra disk space.'),
         h('p',null,'For normal playback, leave the player on Source videos; no preparation is needed. After generating, choose Prepared clips in the player. This does not export a single compilation movie.'),
         h(Field,{label:'Maximum clip width'},h('select',{value:doc.width,disabled:busy,onChange:e=>edit({width:Number(e.target.value)})},[640,1280,1920].map(w=>h('option',{key:w,value:w},w+' px')))),

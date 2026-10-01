@@ -1,6 +1,6 @@
 name: Marker Compilations
 description: Arrange markers into saved compilations with source playback and optional full-duration cached clips.
-version: 0.12.1
+version: 0.13.0
 url: https://github.com/helperbot-3/stash-marker-compilations-plugin
 interface: raw
 exec:
@@ -14,8 +14,14 @@ ui:
     - ui/compilations.css
   assets:
     /cache/: cache/
+    /exports/: exports/
 tasks:
   - name: Generate compilation clips
     description: Generate reusable full-duration clips for a saved compilation. Start this from the compilation editor.
     defaultArgs:
       action: generate
+
+  - name: Render compilation video
+    description: Render a saved snapshot into a complete video and optionally import it into Stash.
+    defaultArgs:
+      action: render_export

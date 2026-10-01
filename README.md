@@ -152,8 +152,35 @@ sequences or zones does not require generating clips again.
 - Generation runs in Stash's task queue. Cancelling also terminates its FFmpeg worker;
   completed clips are kept for reuse, while interrupted output is removed.
 
-Standalone compilation export is a future feature. This version implements source
-playback and reusable individual clips without creating a new scene in the library.
+## Render a complete video
+
+Choose **Render video** from a saved compilation or the editor, select 720p or 1080p,
+and start rendering. Unsaved edits are saved first. The background job renders the
+saved sequence, including every full-clip/hot-zone step, repeat and speed change,
+into one MP4 (H.264, 30 fps, optional AAC audio). Aspect ratios are preserved with
+black padding; slowdown preserves audio pitch. Cuts are rounded to output frames.
+
+**Add to Stash library** is enabled by default. Choose a configured video library
+folder: the video is written into its `Marker Compilations` subfolder, scanned,
+and registered as a regular scene with the compilation title and `Compilation`
+tag. Source performers and tags can optionally be copied. If import fails, use
+**Retry import**; the completed video is retained.
+
+Disable library import to keep the video in
+`<Stash config directory>/marker-compilations/renders`. Either option supports
+**Watch rendered video** and **Download** in the rendered versions list. Library
+versions also have **Open scene**. Files play through Stash's authenticated plugin
+asset endpoint; access links are recreated after plugin updates.
+
+Each render is an independent snapshot and file. Editing a project marks prior
+versions as older; it never silently replaces a video. Deleting the project does
+not delete its rendered files. Back up rendered files as well as the plugin database.
+The plugin does not automatically reclaim this storage. Rendering needs FFmpeg,
+ffprobe, readable source files and write access to the destination. In Docker,
+these paths and permissions must be available inside the Stash container.
+
+Jobs run in Stash's task queue. Close the dialog and keep editing while a render
+runs; return to it for progress, cancellation and completed versions.
 
 ## Packaging and development
 
