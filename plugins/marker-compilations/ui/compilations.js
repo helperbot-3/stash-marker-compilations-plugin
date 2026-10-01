@@ -187,6 +187,9 @@
     function addZone(){const added=patterns.newHotZone(clip,position);if(!added)return;added.id=globalThis.crypto?.randomUUID?.()||'zone-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);const next=zones.concat(added).sort((a,b)=>a.start-b.start);if(onChange({hot_zone:null,hot_zones:next})!==false)setZoneSelection(next.indexOf(added));}
 
     const [position,setPosition]=useState(clip.start);
+    const navigation=useRef(null), inputQueue=useRef(Promise.resolve()), navigationGeneration=useRef(0);
+    if(!navigation.current)navigation.current=patterns.seekQueue(()=>video.current?.currentTime||0,value=>{setSeeking(true);video.current.currentTime=value+.00001;},setPosition);
+    useEffect(()=>()=>{navigationGeneration.current++;navigation.current.reset();},[]);
     const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
     const frameData=useRef(null), frameRequest=useRef(0), warming=useRef(null), framePending=useRef(null);
     const [step,setStep]=useState(1), [playing,setPlaying]=useState(false), [ready,setReady]=useState(false), [seeking,setSeeking]=useState(true), [error,setError]=useState('');
@@ -231,26 +234,33 @@
     }
     useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;clearTimeout(warming.current);};},[clip.scene_id]);
     async function stepFrames(direction,amount=step){
-      const v=video.current;if(!v||!ready||busy||frameBusy||seeking||v.seeking)return;
+      const v=video.current;if(!v||!ready||busy)return;
       onBeforePlay();v.pause();limit.current=null;
-      const point=v.currentTime, count=direction*amount;
+      const point=navigation.current.position(), count=direction*amount, generation=navigationGeneration.current;
       let next=patterns.frameStep(frameData.current,point,count);
       if(next===null){const data=await loadFrames(point);if(!data)return;next=patterns.frameStep(data,point,count);}
+      if(generation!==navigationGeneration.current)return;
       if(next!==null)seek(next,true);
       else setFrameError('Could not locate the next frame in this source.');
     }
     function seek(value,frame=false){
       const v=video.current;if(!v||!ready)return;
       onBeforePlay();v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
-      setSeeking(true);v.currentTime=Math.min(duration,target+(frame ? .00001 : 0));setPosition(target);
+      navigation.current.request(target);
     }
+    function enqueueStep(action){
+      const generation=navigationGeneration.current;
+      inputQueue.current=inputQueue.current.then(()=>generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));
+    }
+    function stepSecond(direction){if(video.current&&ready&&!busy)seek(navigation.current.position()+direction);}
     function loaded(){
+      navigation.current.reset();
       const v=video.current;
       if(!Number.isFinite(v.duration)||v.duration<=0){setError('This stream does not provide a seekable duration. Choose another stream.');return;}
       setDuration(v.duration);setReady(true);setError('');
       const target=Math.min(pending.current,v.duration);v.currentTime=target;setPosition(target);setSeeking(v.seeking);
     }
-    function update(){const v=video.current;if(!v)return;setPosition(v.currentTime);if(limit.current!=null&&v.currentTime>=limit.current){v.pause();v.currentTime=limit.current;limit.current=null;}}
+    function update(){const v=video.current;if(!v)return;setPosition(navigation.current.position());if(limit.current!=null&&v.currentTime>=limit.current){v.pause();v.currentTime=limit.current;limit.current=null;}}
     useEffect(()=>{let frame;function tick(){if(video.current&&!video.current.paused)update();frame=requestAnimationFrame(tick);}frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);},[]);
     useEffect(()=>{
       const v=video.current;if(!v?.requestVideoFrameCallback)return;
@@ -260,6 +270,7 @@
     },[target,stream]);
     function play(selection,zone=null){
       const v=video.current;if(!v||!ready)return;
+      navigationGeneration.current++;navigation.current.reset();
       onBeforePlay();limit.current=selection?(zone?.end??end):null;
       if(selection){v.currentTime=zone?.start??start;setPosition(zone?.start??start);}
       v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
@@ -277,23 +288,23 @@
       preview:p=>{const ranges=patterns.stepRanges(clip,p.target);if(ranges.length)seek(ranges[0].start);},
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
-      frame:direction=>stepFrames(direction,1),
-      second:direction=>{const v=video.current;if(v&&ready&&!busy&&!frameBusy&&!seeking&&!v.seeking)seek(v.currentTime+direction);}
+      frame:direction=>enqueueStep(()=>stepFrames(direction,1)),
+      second:direction=>enqueueStep(()=>stepSecond(direction))
     };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
       h('div',{className:'mc-clip-trim'},
       h('h3',null,'Trim',h('span',{className:'mc-fps',title:'Source frame rate. HH:MM:SS:FF non-drop-frame timecode.'},fps?Number(fps.toFixed(3))+' fps':'Reading frame rate…')),
       target&&api.ReactDOM.createPortal(h('div',{className:'mc-trim-preview'},h('video',{ref:video,src:streams[stream]?.url,preload:'auto',playsInline:true,controls:true,onLoadedMetadata:loaded,
-        onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{setSeeking(false);update();warmFrames(video.current.currentTime);},
+        onTimeUpdate:update,onPlay:()=>{onBeforePlay();setPlaying(true);},onPause:()=>setPlaying(false),onSeeking:()=>setSeeking(true),onSeeked:()=>{if(navigation.current.settled()){setSeeking(false);update();warmFrames(video.current.currentTime);}},
         onError:()=>{setReady(false);setError('Source unavailable. Try another stream.');}})),target),
       error&&h('p',{role:'alert'},error),
       h('div',{className:'mc-trim-controls'},
         button(playing?'Ⅱ':'▶',()=>playing?video.current.pause():play(false),!ready||busy,{'aria-label':playing?'Pause source preview':'Play source preview'}),
         button('Play range',()=>play(true),!valid||busy),
         h('div',{className:'mc-step-controls'},
-        button('−',()=>stepFrames(-1),!ready||seeking||busy||frameBusy,{'aria-label':'Step backward',title:'Step backward '+step+' frame(s)'}),
+        button('−',()=>enqueueStep(()=>stepFrames(-1)),!ready||busy,{'aria-label':'Step backward',title:'Step backward '+step+' frame(s)'}),
         h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[1,5,10].map(s=>h('option',{key:s,value:s},s+' frame'+(s===1?'':'s')))),
-        button('+',()=>stepFrames(1),!ready||seeking||busy||frameBusy,{'aria-label':'Step forward',title:'Step forward '+step+' frame(s)'})),
+        button('+',()=>enqueueStep(()=>stepFrames(1)),!ready||busy,{'aria-label':'Step forward',title:'Step forward '+step+' frame(s)'})),
         h('output',{'aria-label':'Trim preview time'},patterns.frameTime(position,fps))),
       h('input',{'aria-label':'Source position',className:'mc-trim-slider',type:'range',min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready||busy,onChange:e=>seek(Number(e.target.value))}),
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>changeBoundary('start',start)}),
@@ -315,7 +326,7 @@
           null)),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
-      streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
+      streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;navigationGeneration.current++;navigation.current.reset();video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
   }
 
   function SequenceEditor({clip,onChange,disabled,onPreview,onPlay}) {

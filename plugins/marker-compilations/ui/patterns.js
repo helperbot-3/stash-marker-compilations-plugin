@@ -150,6 +150,22 @@
     if(index<0||next<0&&!window.at_start||next>=window.times.length&&!window.at_end)return null;
     return window.times[Math.max(0,Math.min(window.times.length-1,next))];
   }
+  // Keep one decoder seek in flight. Rapid inputs accumulate against the intended
+  // position and intermediate destinations are skipped once decoding completes.
+  function seekQueue(read,write,changed){
+    let target=null,active=false;
+    function pump(){
+      if(active||target===null)return;
+      if(Math.abs(read()-target)<.00002){target=null;return;}
+      active=true;write(target);
+    }
+    return {
+      position:()=>target??read(),
+      request:value=>{target=value;changed(value);pump();},
+      settled:()=>{active=false;pump();return target===null;},
+      reset:()=>{target=null;active=false;}
+    };
+  }
   const clipboardType='stash-marker-compilation-clip';
   function copyClip(clip) {
     return {scene_id:String(clip.scene_id),marker_id:String(clip.marker_id||''),title:String(clip.title||''),start:clip.start,end:clip.end,phases:phases(clip).map(p=>({...p,...(p.ranges?{ranges:p.ranges.slice()}:{})})),...(clip.hot_zones!==undefined?{hot_zones:clip.hot_zones.map(z=>({...z}))}:clip.hot_zone?{hot_zone:{...clip.hot_zone}}:{})};
@@ -166,7 +182,7 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={seekQueue,presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

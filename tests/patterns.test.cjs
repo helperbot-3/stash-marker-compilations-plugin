@@ -208,3 +208,21 @@ test('moving start past end preserves duration, clips to next zone, and rejects 
  assert.equal(patterns.adjustedRange(z,{start:20},0,20),null);
  assert.deepEqual(patterns.adjustedRange(z,{start:19},0,20),{id:'a',start:19,end:20});
 });
+
+test('rapid trim inputs accumulate while the decoder finishes one seek',()=>{
+  let displayed=10;const writes=[],positions=[];
+  const queue=patterns.seekQueue(()=>displayed,t=>writes.push(t),t=>positions.push(t));
+  queue.request(queue.position()+1/24);
+  queue.request(queue.position()+1/24);
+  queue.request(queue.position()-1);
+  assert.equal(writes.length,1,'do not restart the decoder for every press');
+  assert.ok(Math.abs(queue.position()-(9+2/24))<1e-9);
+  displayed=writes[0]+.00001;
+  assert.equal(queue.settled(),false);
+  assert.equal(writes.length,2,'seek straight to latest requested position');
+  displayed=writes[1]+.00001;
+  assert.equal(queue.settled(),true);
+  assert.equal(positions.length,3,'time display responds to each press');
+  queue.request(displayed);assert.equal(writes.length,2,'same-frame request cannot stall');
+  queue.reset();assert.equal(queue.position(),displayed);
+});
