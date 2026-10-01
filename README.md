@@ -167,7 +167,10 @@ when needed. Expand **Markers in this scene** to edit an existing marker.
 
 - Outside text fields, **I** marks the start, **O** marks the end, **Enter** saves,
   **Space** plays/pauses, and arrows step frames (left/right) or seconds (up/down).
-  Marking while playing keeps playback running.
+  Marking and navigating while playing keep playback running; paused video stays paused.
+  Shortcuts work on buttons and the source slider. Choosing a dropdown option returns
+  focus to the workspace. Text fields keep normal editing keys; press **Escape** to
+  leave a field or dropdown and resume video shortcuts.
 - Select a primary tag once and keep capturing ranges. Blank titles use the tag's
   name. Recent tags and **☆** pinned favorites provide shortcuts. These preferences
   are stored in the current browser; additional tags are available in the expandable field.

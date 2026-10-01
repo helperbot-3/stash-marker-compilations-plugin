@@ -236,7 +236,7 @@
     useEffect(()=>{loadFrames(clip.start);return()=>{frameRequest.current++;clearTimeout(warming.current);};},[clip.scene_id]);
     async function stepFrames(direction,amount=step){
       const v=video.current;if(!v||!ready||busy)return;
-      onBeforePlay();v.pause();limit.current=null;
+      onBeforePlay();if(!captureWhilePlaying)v.pause();limit.current=null;
       const point=navigation.current.position(), count=direction*amount, generation=navigationGeneration.current;
       let next=patterns.frameStep(frameData.current,point,count);
       if(next===null){const data=await loadFrames(point);if(!data)return;next=patterns.frameStep(data,point,count);}
@@ -246,7 +246,7 @@
     }
     function seek(value,frame=false){
       const v=video.current;if(!v||!ready)return;
-      onBeforePlay();v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
+      onBeforePlay();if(!captureWhilePlaying)v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
       navigation.current.request(target);
     }
     function enqueueStep(action){
@@ -430,6 +430,27 @@
       button(mode==='update'?'Update original marker':'Save as new marker',save,busy||!value.primary||(mode==='update'&&!expected),{className:'mc-primary'}));
   }
 
+  function markerKeyboard({controls,save,busy,enabled,focus,captured}){
+    const consume=e=>{e.preventDefault();e.stopImmediatePropagation();};
+    function key(e){
+      if(e.isComposing||e.ctrlKey||e.metaKey||e.altKey)return;
+      const target=e.target,k=e.key.toLowerCase();
+      const editing=target instanceof Element&&(target.isContentEditable||target.closest('textarea,select,[role="textbox"],input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])'));
+      if(k==='escape'&&editing){consume(e);focus();return;}
+      if(editing||busy||!enabled)return;
+      let action;
+      if(k==='i'||k==='o')action=()=>controls.current?.mark(k==='i'?'start':'end');
+      else if(k===' ')action=()=>controls.current?.toggle();
+      else if(k==='arrowleft'||k==='arrowright')action=()=>controls.current?.frame(k==='arrowleft'?-1:1);
+      else if(k==='arrowup'||k==='arrowdown')action=()=>controls.current?.second(k==='arrowup'?-1:1);
+      else if(k==='enter')action=save;
+      if(!action)return;consume(e);captured.add(k);
+      if(!e.repeat||k.startsWith('arrow'))action();
+    }
+    function release(e){const k=e.key.toLowerCase();if(captured.delete(k))consume(e);}
+    return {key,release,blur:()=>captured.clear()};
+  }
+
   function MarkerWorkspace(){
     const client=useApolloClient(),[query,setQuery]=useState(''),[scenes,setScenes]=useState([]),[sceneId,setSceneId]=useState(()=>new URLSearchParams(window.location.search).get('scene')||''),[scene,setScene]=useState(null);
     const [clip,setClip]=useState(null),[tags,setTags]=useState([]),[value,setValue]=useState({title:'',primary:markerPreferences().last||'',tag_ids:[]});
@@ -453,11 +474,13 @@
       }catch(e){setMessage(e.message);}finally{saving.current=false;setBusy(false);}
     }
     async function undo(){if(!lastCreated||busy)return;setBusy(true);try{const result=await markerOp(client,{action:'undo_marker',scene_id:lastCreated.scene_id,marker_id:lastCreated.marker.id,expected:lastCreated.marker,project_id:lastCreated.project_id});if(sceneId===lastCreated.scene_id)setScene(await fetchScene(sceneId));setLastCreated(null);setExpected(null);setMessage(result.warning||'Marker creation undone.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
-    useEffect(()=>{function key(e){if(e.target instanceof Element&&(e.target.closest('input,textarea,select,[contenteditable=true]')))return;if(e.ctrlKey||e.metaKey||e.altKey||busy||!clip)return;const k=e.key.toLowerCase();let action;
-      if(k==='i')action=()=>controls.current?.mark('start');else if(k==='o')action=()=>controls.current?.mark('end');else if(k===' '){action=()=>controls.current?.toggle();}else if(k==='arrowleft')action=()=>controls.current?.frame(-1);else if(k==='arrowright')action=()=>controls.current?.frame(1);else if(k==='arrowup')action=()=>controls.current?.second(-1);else if(k==='arrowdown')action=()=>controls.current?.second(1);else if(k==='enter'&&!e.repeat)action=()=>save(expected?'update':'new');
-      if(action){e.preventDefault();e.stopImmediatePropagation();action();}}
-      window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);});
-    return h('main',{className:'mc mc-marker-workspace',ref:workspace},
+    const capturedKeys=useRef(new Set());
+    useEffect(()=>{
+      const {key,release,blur}=markerKeyboard({controls,save:()=>save(expected?'update':'new'),busy,enabled:!!clip,focus:()=>workspace.current?.focus(),captured:capturedKeys.current});
+      window.addEventListener('keydown',key,true);window.addEventListener('keyup',release,true);window.addEventListener('blur',blur);
+      return()=>{window.removeEventListener('keydown',key,true);window.removeEventListener('keyup',release,true);window.removeEventListener('blur',blur);};
+    });
+    return h('main',{className:'mc mc-marker-workspace',ref:workspace,tabIndex:-1,onChange:e=>{if(e.target instanceof Element&&e.target.matches('select'))workspace.current?.focus();}},
       h('header',{className:'mc-header'},h(Link,{to:'/marker-compilations'},'← Compilations'),h('h1',null,'Create scene markers'),scene&&h(Link,{to:'/scenes/'+scene.id},'Open scene ↗')),
       h('details',{className:'mc-marker-scene-choice',open:!sceneId||undefined},h('summary',null,scene?(scene.title||'Scene '+scene.id)+' · Change scene':'Choose a scene to begin'),
         h('div',{className:'mc-marker-scene-picker'},h(Field,{label:'Find a scene'},h('input',{type:'search','aria-label':'Find a scene',value:query,onChange:e=>setQuery(e.target.value)})),h(Field,{label:'Scene'},h('select',{'aria-label':'Marker creation scene',value:sceneId,disabled:busy,onChange:e=>{setSceneId(e.target.value);e.target.closest('details').open=false;}},h('option',{value:''},'Choose a scene'),scene&&!scenes.some(s=>s.id===scene.id)&&h('option',{value:scene.id},scene.title||'Scene '+scene.id),scenes.map(s=>h('option',{key:s.id,value:s.id},s.title||'Scene '+s.id)))))),
@@ -470,7 +493,7 @@
           h(TrimPreview,{key:sceneId,clip,onChange:change,onBoundaryMarked:markBoundary,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true})),
         h('aside',{className:'mc-marker-metadata'},
           h('h2',null,'1 · Choose a tag'),h(MarkerFields,{tags,value,onChange:setValue,disabled:busy}),
-          h('div',{className:'mc-marker-progress'},h('h2',null,'2 · Mark your range'),h('p',null,(marked.start?'✓ Start set':'Set start (I)')+'  →  '+(marked.end?'✓ End set':'Set end (O)')),h('p',{className:'mc-muted'},'Use the buttons below the video, or I and O while watching. Adjust either time to fine-tune.')),
+          h('div',{className:'mc-marker-progress'},h('h2',null,'2 · Mark your range'),h('p',null,(marked.start?'✓ Start set':'Set start (I)')+'  →  '+(marked.end?'✓ End set':'Set end (O)')),h('p',{className:'mc-muted'},'I / O set start / end. Navigation keeps playback running. Escape leaves a text field or dropdown.')),
           h('div',{className:'mc-marker-save'},h('h2',null,'3 · Save to Stash'),h('div',{className:'mc-inline'},button(expected?'Update marker':'Save marker',()=>save(expected?'update':'new'),busy||!value.primary||!marked.start||!marked.end,{className:'mc-primary'}),expected&&button('Save as new',()=>save('new'),busy||!value.primary||!marked.start||!marked.end),button('New range',newRange,busy)),h('p',{className:'mc-muted'},'Enter saves. Your tag stays selected for the next marker.')),
           h('details',null,h('summary',null,'Also add to a compilation'),h(Field,{label:'Add to project media'},h('select',{'aria-label':'Add created markers to project',value:project,disabled:busy,onChange:e=>setProject(e.target.value)},h('option',{value:''},'Do not add to a project'),projects.map(p=>h('option',{key:p.id,value:p.id},p.name))))),
           h('details',{className:'mc-marker-existing'},h('summary',null,'Markers in this scene · '+(scene?.scene_markers?.length||0)),h('p',{className:'mc-muted'},'Select one to edit its range and tags.'),(scene?.scene_markers||[]).map(m=>button(m.title+' · '+time(m.seconds),()=>editMarker(m),busy,{key:m.id}))))));

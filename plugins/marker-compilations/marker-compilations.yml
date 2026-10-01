@@ -1,6 +1,6 @@
 name: Marker Compilations
 description: Arrange markers into saved compilations with source playback and optional full-duration cached clips.
-version: 0.15.1
+version: 0.15.2
 url: https://github.com/helperbot-3/stash-marker-compilations-plugin
 interface: raw
 exec:
