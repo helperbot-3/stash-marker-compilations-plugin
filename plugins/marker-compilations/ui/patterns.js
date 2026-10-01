@@ -1,5 +1,18 @@
 (function (root) {
   'use strict';
+  let idCounter=0;
+  function uniqueId(){
+    // randomUUID requires a secure context; LAN Stash installations often use HTTP.
+    if(typeof root.crypto?.randomUUID==='function')return root.crypto.randomUUID();
+    if(typeof root.crypto?.getRandomValues==='function'){
+      const bytes=root.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+      const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+      return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20);
+    }
+    return 'id-'+Date.now().toString(36)+'-'+(++idCounter).toString(36)+'-'+Math.random().toString(36).slice(2);
+  }
+
   const presets = {
     once: [{repeat:1,speed:1}],
     '3-2-3': [{repeat:3,speed:1},{repeat:2,speed:0.5},{repeat:3,speed:1}],
@@ -182,7 +195,7 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={seekQueue,presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  const api={uniqueId,seekQueue,presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);
