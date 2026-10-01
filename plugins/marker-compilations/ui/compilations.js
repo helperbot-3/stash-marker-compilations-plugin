@@ -170,7 +170,7 @@
         total>0&&h('div',{className:'mc-playhead',style:{left:Math.min(current,total)*scale},'aria-hidden':true},h('span',null)))));
   }
 
-  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target,frameCache,captureWhilePlaying=false,onBoundaryMarked}) {
+  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target,frameCache,captureWhilePlaying=false,onBoundaryMarked,onCapture}) {
     const client=useApolloClient(), video=useRef(null), pending=useRef(clip.start), limit=useRef(null);
     const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
     const latestClip=useRef({clip,onChange});latestClip.current={clip,onChange};
@@ -188,7 +188,7 @@
     function addZone(){const added=patterns.newHotZone(clip,position);if(!added)return;added.id=globalThis.crypto?.randomUUID?.()||'zone-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);const next=zones.concat(added).sort((a,b)=>a.start-b.start);if(onChange({hot_zone:null,hot_zones:next})!==false)setZoneSelection(next.indexOf(added));}
 
     const [position,setPosition]=useState(clip.start);
-    const navigation=useRef(null), inputQueue=useRef(Promise.resolve()), navigationGeneration=useRef(0);
+    const navigation=useRef(null), inputQueue=useRef(Promise.resolve()), navigationGeneration=useRef(0),queuedNavigation=useRef(0);
     if(!navigation.current)navigation.current=patterns.seekQueue(()=>video.current?.currentTime||0,value=>{setSeeking(true);video.current.currentTime=value+.00001;},setPosition);
     useEffect(()=>()=>{navigationGeneration.current++;navigation.current.reset();},[]);
     const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
@@ -282,16 +282,17 @@
       let data=frameData.current, point=patterns.frameStep(data,current,0);
       if(point===null){data=await loadFrames(current);if(!data)return false;point=patterns.frameStep(data,current,0);}
       if(point===null)return false;
+      if(onCapture&&!which.startsWith('hot_'))return await onCapture(which,point);
       setPosition(point);return which.startsWith('hot_')?updateZone({[which.slice(4)]:point})!==false:changeBoundary(which,point)!==false;
     }
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
-      mark:which=>{const captured=video.current?.currentTime;return enqueueStep(()=>mark(which,captured));},flush:()=>inputQueue.current,seek:position=>seek(position),
+      mark:which=>{const afterNavigation=queuedNavigation.current>0,captured=navigation.current.position();return enqueueStep(()=>mark(which,afterNavigation?navigation.current.position():captured));},flush:()=>inputQueue.current,seek:position=>seek(position),
       preview:p=>{const ranges=patterns.stepRanges(clip,p.target);if(ranges.length)seek(ranges[0].start);},
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
-      frame:direction=>enqueueStep(()=>stepFrames(direction,1)),
-      second:direction=>enqueueStep(()=>stepSecond(direction))
+      frame:direction=>{queuedNavigation.current++;return enqueueStep(()=>stepFrames(direction,1)).finally(()=>queuedNavigation.current--);},
+      second:direction=>{queuedNavigation.current++;return enqueueStep(()=>stepSecond(direction)).finally(()=>queuedNavigation.current--);}
     };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
       h('div',{className:'mc-clip-trim'},
@@ -302,18 +303,19 @@
       error&&h('p',{role:'alert'},error),
       h('div',{className:'mc-trim-controls'},
         button(playing?'Ⅱ':'▶',()=>playing?video.current.pause():play(false),!ready||busy,{'aria-label':playing?'Pause source preview':'Play source preview'}),
-        button('Play range',()=>play(true),!valid||busy),
+        !onCapture&&button('Play range',()=>play(true),!valid||busy),
         h('div',{className:'mc-step-controls'},
         button('−',()=>enqueueStep(()=>stepFrames(-1)),!ready||busy,{'aria-label':'Step backward',title:'Step backward '+step+' frame(s)'}),
         h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[1,5,10].map(s=>h('option',{key:s,value:s},s+' frame'+(s===1?'':'s')))),
         button('+',()=>enqueueStep(()=>stepFrames(1)),!ready||busy,{'aria-label':'Step forward',title:'Step forward '+step+' frame(s)'})),
         h('output',{'aria-label':'Trim preview time'},patterns.frameTime(position,fps))),
       h('input',{'aria-label':'Source position',className:'mc-trim-slider',type:'range',style:captureWhilePlaying&&duration?{background:'linear-gradient(to right, #36404c '+(start/duration*100)+'%, #efbd74 '+(start/duration*100)+'%, #efbd74 '+(end/duration*100)+'%, #36404c '+(end/duration*100)+'%)'}:undefined,min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready||busy,onChange:e=>seek(Number(e.target.value))}),
-      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>changeBoundary('start',start)}),
+      onCapture&&h('div',{className:'mc-capture-buttons'},button('Start highlight (I)',()=>controls.current?.mark('start'),!ready||busy),button('Finish highlight (O)',()=>controls.current?.mark('end'),!ready||busy)),
+      !onCapture&&h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>changeBoundary('start',start)}),
         button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button(captureWhilePlaying?'Set start (I)':'Set',()=>mark('start'),!ready||seeking||busy||frameBusy,{'aria-label':'Set start here'})),
-      h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>changeBoundary('end',end)}),
+      !onCapture&&h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>changeBoundary('end',end)}),
         button('↦',()=>seek(end),!ready||busy,{'aria-label':'Jump to end',title:'Jump to end'}),button(captureWhilePlaying?'Set end (O)':'Set',()=>mark('end'),!ready||seeking||busy||frameBusy,{'aria-label':'Set end here'}))),
-      h(captureWhilePlaying?'details':'div',{className:'mc-hot-zone'},
+      !onCapture&&h(captureWhilePlaying?'details':'div',{className:'mc-hot-zone'},
         captureWhilePlaying&&h('summary',null,'Hot zones (optional)'),
         h('div',{className:'mc-hot-heading'},h('h3',null,'Hot zones'),
           button('+ Zone',addZone,busy||!patterns.newHotZone(clip,position),{'aria-label':'Add hot zone'}),
@@ -453,50 +455,92 @@
 
   function MarkerWorkspace(){
     const client=useApolloClient(),[query,setQuery]=useState(''),[scenes,setScenes]=useState([]),[sceneId,setSceneId]=useState(()=>new URLSearchParams(window.location.search).get('scene')||''),[scene,setScene]=useState(null);
-    const [clip,setClip]=useState(null),[tags,setTags]=useState([]),[value,setValue]=useState({title:'',primary:markerPreferences().last||'',tag_ids:[]});
-    const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[target,setTarget]=useState(null),[project,setProject]=useState(''),[projects,setProjects]=useState([]),[expected,setExpected]=useState(null),[lastCreated,setLastCreated]=useState(null);
-    const [marked,setMarked]=useState({}),markedRef=useRef({}),workspace=useRef(null);
-    function markBoundary(which){markedRef.current={...markedRef.current,[which]:true};setMarked(markedRef.current);}
-    function resetMarks(next={}){markedRef.current=next;setMarked(next);}
-    const controls=useRef(null),cache=useRef([]),saving=useRef(false),clipRef=useRef(clip);clipRef.current=clip;
+    const fixedScene=useRef(!!new URLSearchParams(window.location.search).get('scene'));
+    const [clip,setClip]=useState(null),clipRef=useRef(null),[tags,setTags]=useState([]),[value,setValue]=useState({title:'',primary:'',tag_ids:[]}),valueRef=useRef(value);valueRef.current=value;
+    const [projects,setProjects]=useState([]),[project,setProject]=useState('');
+    const [drafts,setDrafts]=useState([]),draftsRef=useRef([]),[selected,setSelected]=useState([]),[active,setActive]=useState(null),activeRef=useRef(null);
+    const [dirty,setDirty]=useState(false),dirtyRef=useRef(false),[batchTag,setBatchTag]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[target,setTarget]=useState(null),[captureStart,setCaptureStart]=useState(null),startRef=useRef(null);
+    const workspace=useRef(null),controls=useRef(null),cache=useRef([]),capturedKeys=useRef(new Set()),loading=useRef(false);
+    function setCurrent(next){clipRef.current=next;setClip(next);}
+    function markDirty(next){dirtyRef.current=next;setDirty(next);}
+    function updateDrafts(change){const next=change(draftsRef.current);draftsRef.current=next;setDrafts(next);try{localStorage.setItem('mc-highlight-recovery-'+sceneId,JSON.stringify(next.filter(d=>d._unsaved)));}catch{setMessage('Browser recovery storage is unavailable. Keep this page open until your highlights are saved.');}}
+    async function persist(draft){
+      const pending={...draft,_unsaved:true,_saving:true};updateDrafts(items=>items.some(d=>d.id===draft.id)?items.map(d=>d.id===draft.id?pending:d):[...items,pending]);
+      try{const saved=await markerOp(client,{action:'save_marker_draft',draft});updateDrafts(items=>items.map(d=>d.id===draft.id?saved:d));return saved;}
+      catch(e){updateDrafts(items=>items.map(d=>d.id===draft.id?{...pending,_saving:false}:d));setMessage('Highlight is not saved to Stash yet: '+e.message+' Retry from the highlight list.');throw e;}
+    }
+    async function fetchScene(id){const r=await client.query({query:gql`query MarkerCreationScene($id:ID!){findScene(id:$id){id title files{duration frame_rate} scene_markers{id title seconds end_seconds primary_tag{id name} tags{id name}}}}`,variables:{id},fetchPolicy:'network-only'});return r.data.findScene;}
     useEffect(()=>{const resize=()=>{if(workspace.current)workspace.current.style.setProperty('--mc-available-height',Math.max(400,window.innerHeight-(workspace.current.getBoundingClientRect().top+window.scrollY)-8)+'px');};resize();window.addEventListener('resize',resize);return()=>window.removeEventListener('resize',resize);},[]);
     useEffect(()=>{client.query({query:TAGS}).then(r=>setTags(r.data.findTags.tags)).catch(e=>setMessage(e.message));markerOp(client,{action:'list'}).then(setProjects).catch(e=>setMessage(e.message));},[]);
-    useEffect(()=>{let disposed=false;const timer=setTimeout(()=>{client.query({query:gql`query MarkerCreationScenes($q:String){findScenes(filter:{q:$q,per_page:40,sort:"title",direction:ASC}){scenes{id title files{duration}}}}`,variables:{q:query}}).then(r=>{if(!disposed)setScenes(r.data.findScenes.scenes);}).catch(e=>{if(!disposed)setMessage(e.message);});},200);return()=>{disposed=true;clearTimeout(timer);};},[query]);
-    async function fetchScene(id){const r=await client.query({query:gql`query MarkerCreationScene($id:ID!){findScene(id:$id){id title files{duration} scene_markers{id title seconds end_seconds primary_tag{id name} tags{id name}}}}`,variables:{id},fetchPolicy:'network-only'});return r.data.findScene;}
-    useEffect(()=>{let disposed=false;setScene(null);setClip(null);setExpected(null);resetMarks();if(!sceneId)return;setBusy(true);fetchScene(sceneId).then(s=>{if(disposed)return;if(!s?.files?.[0]?.duration)throw Error('This scene has no playable file.');setScene(s);setClip({scene_id:s.id,title:'',start:0,end:Math.min(5,s.files[0].duration),hot_zones:[]});}).catch(e=>{if(!disposed)setMessage(e.message);}).finally(()=>{if(!disposed)setBusy(false);});return()=>{disposed=true;};},[sceneId]);
-    function change(patch){const next={...clipRef.current,...patch};if(!patterns.validHotZone(next)){setMessage('Keep hot zones inside the marker range, or start a New range.');return false;}clipRef.current=next;setClip(next);}
-    function newRange(){resetMarks();setExpected(null);setValue(v=>({...v,title:''}));setClip(c=>({...c,marker_id:'',title:'',hot_zones:[],hot_zone:null}));setMessage('New marker range. Press I for start, O for end, then Enter to save.');}
-    async function editMarker(marker){setBusy(true);setMessage('');try{const context=await markerOp(client,{action:'marker_context',scene_id:sceneId,marker_id:marker.id});resetMarks({start:true,end:marker.end_seconds>marker.seconds});setExpected(context.marker);setValue({title:marker.title,primary:marker.primary_tag.id,tag_ids:marker.tags.map(t=>t.id)});setClip({scene_id:sceneId,marker_id:marker.id,title:marker.title,start:marker.seconds,end:marker.end_seconds>marker.seconds?marker.end_seconds:Math.min(marker.seconds+5,scene.files[0].duration),hot_zones:context.hot_zones});controls.current?.seek(marker.seconds);}catch(e){setMessage(e.message);}finally{setBusy(false);}}
-    async function save(mode='new'){
-      if(!clip||saving.current||busy)return;saving.current=true;setBusy(true);setMessage('');
-      try{if(await controls.current?.flush()===false)throw Error('The range could not be marked. Adjust the boundaries before saving.');if(!markedRef.current.start||!markedRef.current.end)throw Error('Set the start and end of your marker before saving.');const result=await markerOp(client,{action:'save_marker',mode,clip:clipRef.current,title:value.title.trim()||tags.find(t=>t.id===value.primary)?.name||'',primary_tag_id:value.primary,tag_ids:value.tag_ids,expected,project_id:project||undefined});rememberMarkerTag(value.primary);if(mode==='new')setLastCreated({marker:result.marker,scene_id:sceneId,project_id:result.added_to_project?project:undefined});
-        setExpected(mode==='update'?result.marker:null);setClip(c=>({...c,marker_id:mode==='update'?result.marker.id:'',title:mode==='update'?result.marker.title:'',...(mode==='new'?{hot_zones:[],hot_zone:null}:{})}));if(mode==='new'){resetMarks();setValue(v=>({...v,title:''}));}setScene(await fetchScene(sceneId));setMessage((mode==='update'?'Marker updated.':'Marker created. Mark the next range to continue.')+(result.added_to_project?' Added to project media.':'')+(result.warning?' '+result.warning:''));
-      }catch(e){setMessage(e.message);}finally{saving.current=false;setBusy(false);}
+    useEffect(()=>{if(fixedScene.current)return;let disposed=false;const timer=setTimeout(()=>{client.query({query:gql`query MarkerCreationScenes($q:String){findScenes(filter:{q:$q,per_page:40,sort:"title",direction:ASC}){scenes{id title files{duration}}}}`,variables:{q:query}}).then(r=>{if(!disposed)setScenes(r.data.findScenes.scenes);}).catch(e=>{if(!disposed)setMessage(e.message);});},200);return()=>{disposed=true;clearTimeout(timer);};},[query]);
+    useEffect(()=>{let disposed=false;setScene(null);setCurrent(null);setActive(null);activeRef.current=null;setSelected([]);markDirty(false);startRef.current=null;setCaptureStart(null);draftsRef.current=[];setDrafts([]);if(!sceneId)return;
+      setBusy(true);loading.current=true;
+      Promise.all([fetchScene(sceneId),markerOp(client,{action:'list_marker_drafts',scene_id:sceneId})]).then(([s,items])=>{
+        if(disposed)return;if(!s?.files?.[0]?.duration)throw Error('This scene has no playable file.');
+        let recovery=[];try{recovery=JSON.parse(localStorage.getItem('mc-highlight-recovery-'+sceneId)||'[]');}catch{}
+        const recovered=Array.isArray(recovery)?recovery.filter(d=>d?.clip?.scene_id===sceneId&&(!items.some(item=>item.id===d.id)||items.some(item=>item.id===d.id&&item.revision===d.revision))).map(d=>({...d,_saving:false})):[];
+        draftsRef.current=[...items.filter(d=>!recovered.some(r=>r.id===d.id)),...recovered];setDrafts(draftsRef.current);if(recovered.length)setMessage('Recovered unsaved highlights. Use Retry to save them to Stash.');
+        setScene(s);setCurrent({scene_id:s.id,start:0,end:Math.min(5,s.files[0].duration),hot_zones:[]});
+      }).catch(e=>{if(!disposed)setMessage(e.message);}).finally(()=>{if(!disposed){loading.current=false;setBusy(false);}});return()=>{disposed=true;};
+    },[sceneId]);
+    useEffect(()=>{if(!scene||loading.current)return;const recovery=drafts.filter(d=>d._unsaved&&d.id!==active);if(active&&dirty){const draft=drafts.find(d=>d.id===active);if(draft)recovery.push({...draft,clip,...value,_unsaved:true,_saving:false});}else if(active){const draft=drafts.find(d=>d.id===active);if(draft?._unsaved)recovery.push(draft);}try{localStorage.setItem('mc-highlight-recovery-'+sceneId,JSON.stringify(recovery));}catch{}},[scene,drafts,active,dirty,clip,value]);
+    useEffect(()=>{const guard=e=>{if(dirtyRef.current||startRef.current!==null||draftsRef.current.some(d=>d._unsaved)){e.preventDefault();e.returnValue='';}};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[]);
+    function change(patch){const next={...clipRef.current,...patch};if(!patterns.validHotZone(next)){setMessage('Keep hot zones inside the highlight range.');return false;}setCurrent(next);if(activeRef.current)markDirty(true);}
+    function metadata(next){valueRef.current=next;setValue(next);markDirty(true);}
+    async function keepDraft(){
+      await controls.current?.flush();const id=activeRef.current;if(!id||!dirtyRef.current)return draftsRef.current.find(d=>d.id===id);
+      const old=draftsRef.current.find(d=>d.id===id);const saved=await persist({...old,clip:clipRef.current,...valueRef.current});markDirty(false);return saved;
     }
-    async function undo(){if(!lastCreated||busy)return;setBusy(true);try{const result=await markerOp(client,{action:'undo_marker',scene_id:lastCreated.scene_id,marker_id:lastCreated.marker.id,expected:lastCreated.marker,project_id:lastCreated.project_id});if(sceneId===lastCreated.scene_id)setScene(await fetchScene(sceneId));setLastCreated(null);setExpected(null);setMessage(result.warning||'Marker creation undone.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
-    const capturedKeys=useRef(new Set());
+    async function captureMode(){if(busy)return;setBusy(true);try{await keepDraft();activeRef.current=null;setActive(null);markDirty(false);setMessage('Capture: I starts a highlight. O finishes and saves a draft.');}catch{}finally{setBusy(false);}}
+    async function refine(draft){if(busy||draft._saving)return;setBusy(true);try{await keepDraft();const fresh=draftsRef.current.find(d=>d.id===draft.id);controls.current?.pause();activeRef.current=fresh.id;setActive(fresh.id);setCurrent(fresh.clip);const fields={title:fresh.title,primary:fresh.primary,tag_ids:fresh.tag_ids};valueRef.current=fields;setValue(fields);markDirty(false);startRef.current=null;setCaptureStart(null);controls.current?.seek(fresh.clip.start);setMessage('Refine this draft. Keep draft saves your edits; Save to Stash creates a regular marker.');}catch{}finally{setBusy(false);}}
+    async function capture(which,point){
+      if(which==='start'){startRef.current=point;setCaptureStart(point);setCurrent({scene_id:sceneId,start:point,end:Math.min(scene.files[0].duration,point+5),hot_zones:[]});setMessage('Highlight started. Press O at the end.');return true;}
+      const start=startRef.current;if(start===null){setMessage('Press I to start a highlight first.');return false;}if(point<=start){setMessage('The highlight must end after its start. Keep watching, then press O.');return false;}
+      const draft={id:crypto.randomUUID(),revision:0,clip:{scene_id:sceneId,start,end:point,hot_zones:[]},title:'',primary:'',tag_ids:[]};
+      startRef.current=null;setCaptureStart(null);setCurrent(draft.clip);
+      try{await persist(draft);setMessage('Highlight saved as a draft. Keep watching; tag it whenever you’re ready.');return true;}catch{return false;}
+    }
+    async function editMarker(marker){if(busy)return;const existing=draftsRef.current.find(d=>d.clip.marker_id===marker.id);if(existing)return refine(existing);setBusy(true);
+      try{await keepDraft();const context=await markerOp(client,{action:'marker_context',scene_id:sceneId,marker_id:marker.id});const draft=await persist({id:crypto.randomUUID(),revision:0,clip:{scene_id:sceneId,marker_id:marker.id,start:marker.seconds,end:marker.end_seconds>marker.seconds?marker.end_seconds:Math.min(marker.seconds+5,scene.files[0].duration),hot_zones:context.hot_zones},title:marker.title,primary:marker.primary_tag.id,tag_ids:marker.tags.map(t=>t.id),expected:context.marker});controls.current?.pause();activeRef.current=draft.id;setActive(draft.id);setCurrent(draft.clip);valueRef.current={title:draft.title,primary:draft.primary,tag_ids:draft.tag_ids};setValue(valueRef.current);markDirty(false);startRef.current=null;setCaptureStart(null);controls.current?.seek(draft.clip.start);setMessage('Refining a copy. Update original or save it as a new marker when ready.');}catch(e){setMessage(e.message);}finally{setBusy(false);}
+    }
+    async function saveEdits(){if(busy)return;setBusy(true);try{await keepDraft();setMessage('Draft saved. You can keep refining or return to Capture.');}catch{}finally{setBusy(false);}}
+    async function batchTagging(){if(busy||!batchTag||!selected.length)return;setBusy(true);try{await keepDraft();for(const id of selected){const d=draftsRef.current.find(d=>d.id===id);if(d)await persist({...d,primary:batchTag});}if(activeRef.current&&selected.includes(activeRef.current)){const next={...valueRef.current,primary:batchTag};valueRef.current=next;setValue(next);}setMessage('Tag applied to selected drafts.');}catch(e){setMessage('Some drafts could not be tagged: '+e.message);}finally{setBusy(false);}}
+    async function publish(ids,mode='new'){
+      if(busy)return;setBusy(true);let count=0;const warnings=[];
+      try{await keepDraft();const items=ids.map(id=>draftsRef.current.find(d=>d.id===id)).filter(Boolean);if(items.some(d=>!d.primary))throw Error('Choose a tag for every selected draft before saving to Stash.');
+        for(let draft of items){if(draft._unsaved)draft=await persist(draft);const result=await markerOp(client,{action:'publish_marker_draft',id:draft.id,revision:draft.revision,mode,project_id:project||undefined,title:draft.title.trim()||tags.find(t=>t.id===draft.primary)?.name||''});rememberMarkerTag(draft.primary);count++;updateDrafts(items=>items.filter(d=>d.id!==draft.id));setSelected(ids=>ids.filter(id=>id!==draft.id));if(activeRef.current===draft.id){activeRef.current=null;setActive(null);markDirty(false);}if(result.warning)warnings.push(result.warning);}
+        setScene(await fetchScene(sceneId));setMessage(count+' marker'+(count===1?'':'s')+' saved to Stash.'+(warnings.length?' '+warnings.join(' '):''));
+      }catch(e){setMessage((count?count+' saved; remaining drafts kept. ':'')+e.message);}finally{setBusy(false);}
+    }
+    async function removeDraft(draft){if(busy||draft._saving)return;setBusy(true);try{if(draft.revision)await markerOp(client,{action:'delete_marker_draft',id:draft.id,revision:draft.revision});updateDrafts(items=>items.filter(d=>d.id!==draft.id));setSelected(ids=>ids.filter(id=>id!==draft.id));if(activeRef.current===draft.id){activeRef.current=null;setActive(null);markDirty(false);}setMessage('Draft removed.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
     useEffect(()=>{
-      const {key,release,blur}=markerKeyboard({controls,save:()=>save(expected?'update':'new'),busy,enabled:!!clip,focus:()=>workspace.current?.focus(),captured:capturedKeys.current});
+      const {key,release,blur}=markerKeyboard({controls,save:()=>activeRef.current?saveEdits():controls.current?.mark('end'),busy,enabled:!!clip,focus:()=>workspace.current?.focus(),captured:capturedKeys.current});
       window.addEventListener('keydown',key,true);window.addEventListener('keyup',release,true);window.addEventListener('blur',blur);
       return()=>{window.removeEventListener('keydown',key,true);window.removeEventListener('keyup',release,true);window.removeEventListener('blur',blur);};
     });
-    return h('main',{className:'mc mc-marker-workspace',ref:workspace,tabIndex:-1,onChange:e=>{if(e.target instanceof Element&&e.target.matches('select'))workspace.current?.focus();}},
-      h('header',{className:'mc-header'},h(Link,{to:'/marker-compilations'},'← Compilations'),h('h1',null,'Create scene markers'),scene&&h(Link,{to:'/scenes/'+scene.id},'Open scene ↗')),
-      h('details',{className:'mc-marker-scene-choice',open:!sceneId||undefined},h('summary',null,scene?(scene.title||'Scene '+scene.id)+' · Change scene':'Choose a scene to begin'),
-        h('div',{className:'mc-marker-scene-picker'},h(Field,{label:'Find a scene'},h('input',{type:'search','aria-label':'Find a scene',value:query,onChange:e=>setQuery(e.target.value)})),h(Field,{label:'Scene'},h('select',{'aria-label':'Marker creation scene',value:sceneId,disabled:busy,onChange:e=>{setSceneId(e.target.value);e.target.closest('details').open=false;}},h('option',{value:''},'Choose a scene'),scene&&!scenes.some(s=>s.id===scene.id)&&h('option',{value:scene.id},scene.title||'Scene '+scene.id),scenes.map(s=>h('option',{key:s.id,value:s.id},s.title||'Scene '+s.id)))))),
-      message&&h('p',{role:'status',className:'mc-notice'},message,lastCreated&&button('Undo last creation',undo,busy)),
-      !clip&&h('p',{className:'mc-muted'},'Create reusable markers for your Stash library. Choose a scene, watch it, and mark the moments you want to keep.'),
-      clip&&h('div',{className:'mc-marker-work-grid'},
-        h('div',{className:'mc-marker-left'},
-          h('div',{className:'mc-marker-guide'},h('strong',null,expected?'Adjust this marker':!marked.start?'Play the scene and set the start':!marked.end?'Keep watching and set the end':'Preview your range, then save'),h('span',null,'Space · play/pause   ← / → · one frame   ↑ / ↓ · one second')),
-          h('section',{className:'mc-marker-screen','aria-label':'Marker preview',ref:setTarget}),
-          h(TrimPreview,{key:sceneId,clip,onChange:change,onBoundaryMarked:markBoundary,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true})),
+    const current=drafts.find(d=>d.id===active),savingCount=drafts.filter(d=>d._saving).length;
+    return h('main',{className:'mc mc-marker-workspace '+(!active?'mc-capturing':'mc-refining'),ref:workspace,tabIndex:-1,onChange:e=>{if(e.target instanceof Element&&e.target.matches('select'))workspace.current?.focus();}},
+      h('header',{className:'mc-header'},h(Link,{to:'/marker-compilations',onClick:e=>{if(dirty||captureStart!==null||savingCount){e.preventDefault();setMessage('Keep your draft or finish the current highlight before leaving.');}}},'← Compilations'),h('h1',null,'Scene highlights'),scene&&h(Link,{to:'/scenes/'+scene.id,onClick:e=>{if(dirty||captureStart!==null||savingCount){e.preventDefault();setMessage('Keep your draft or finish the current highlight before leaving.');}}},(scene.title||'Scene '+scene.id)+' ↗')),
+      !fixedScene.current&&h('details',{className:'mc-marker-scene-choice',open:!sceneId||undefined},h('summary',null,scene?'Change scene':'Choose a scene to begin'),h('div',{className:'mc-marker-scene-picker'},h(Field,{label:'Find a scene'},h('input',{type:'search','aria-label':'Find a scene',value:query,onChange:e=>setQuery(e.target.value)})),h(Field,{label:'Scene'},h('select',{'aria-label':'Marker creation scene',value:sceneId,disabled:busy||dirty||captureStart!==null||savingCount>0,onChange:e=>{setSceneId(e.target.value);e.target.closest('details').open=false;}},h('option',{value:''},'Choose a scene'),scene&&!scenes.some(s=>s.id===scene.id)&&h('option',{value:scene.id},scene.title||'Scene '+scene.id),scenes.map(s=>h('option',{key:s.id,value:s.id},s.title||'Scene '+s.id)))))),
+      message&&h('p',{role:'status',className:'mc-notice'},message),
+      !clip&&h('p',{className:'mc-muted'},busy?'Loading highlights…':'Choose a scene, then capture highlights with I and O. Tagging can wait.'),
+      clip&&h('div',{className:'mc-marker-work-grid'},h('div',{className:'mc-marker-left'},
+        h('div',{className:'mc-marker-guide'},h('div',{className:'mc-inline'},button('Capture',captureMode,busy,{'aria-pressed':!active}),h('strong',null,active?'Refine highlight':captureStart!==null?'● Capturing from '+time(captureStart):'I · start   O · finish & keep')),
+          h('span',null,'Space · play/pause   ← / → · frame   ↑ / ↓ · second   Esc · leave field')),
+        h('section',{className:'mc-marker-screen','aria-label':'Marker preview',ref:setTarget}),
+        h(TrimPreview,{key:sceneId,clip,onChange:change,onCapture:active?null:capture,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true})),
         h('aside',{className:'mc-marker-metadata'},
-          h('h2',null,'1 · Choose a tag'),h(MarkerFields,{tags,value,onChange:setValue,disabled:busy}),
-          h('div',{className:'mc-marker-progress'},h('h2',null,'2 · Mark your range'),h('p',null,(marked.start?'✓ Start set':'Set start (I)')+'  →  '+(marked.end?'✓ End set':'Set end (O)')),h('p',{className:'mc-muted'},'I / O set start / end. Navigation keeps playback running. Escape leaves a text field or dropdown.')),
-          h('div',{className:'mc-marker-save'},h('h2',null,'3 · Save to Stash'),h('div',{className:'mc-inline'},button(expected?'Update marker':'Save marker',()=>save(expected?'update':'new'),busy||!value.primary||!marked.start||!marked.end,{className:'mc-primary'}),expected&&button('Save as new',()=>save('new'),busy||!value.primary||!marked.start||!marked.end),button('New range',newRange,busy)),h('p',{className:'mc-muted'},'Enter saves. Your tag stays selected for the next marker.')),
-          h('details',null,h('summary',null,'Also add to a compilation'),h(Field,{label:'Add to project media'},h('select',{'aria-label':'Add created markers to project',value:project,disabled:busy,onChange:e=>setProject(e.target.value)},h('option',{value:''},'Do not add to a project'),projects.map(p=>h('option',{key:p.id,value:p.id},p.name))))),
-          h('details',{className:'mc-marker-existing'},h('summary',null,'Markers in this scene · '+(scene?.scene_markers?.length||0)),h('p',{className:'mc-muted'},'Select one to edit its range and tags.'),(scene?.scene_markers||[]).map(m=>button(m.title+' · '+time(m.seconds),()=>editMarker(m),busy,{key:m.id}))))));
+          active&&h('section',{className:'mc-draft-refine'},h('div',{className:'mc-panel-heading'},h('h2',null,'Refine highlight'),h('small',null,dirty?'Unsaved edits':'Draft saved')),h(MarkerFields,{tags,value,onChange:metadata,disabled:busy}),
+            h('div',{className:'mc-inline'},button('Keep draft',saveEdits,busy||!dirty),button(current?.expected?'Save as new':'Save to Stash',()=>publish([active]),busy||!value.primary,{className:'mc-primary'}),current?.expected&&button('Update original',()=>publish([active],'update'),busy||!value.primary))),
+          h('div',{className:'mc-panel-heading'},h('h2',null,'Highlights · '+drafts.length),h('small',null,savingCount?'Saving…':drafts.some(d=>d._unsaved)?'Unsaved drafts':'Drafts saved')),
+          !active&&h('p',{className:'mc-muted'},'Watch and capture now. Select a highlight to refine it later. Tags are only required when publishing markers.'),
+          drafts.length>0&&h('div',{className:'mc-draft-batch'},h('div',{className:'mc-inline'},button(selected.length===drafts.length?'Deselect all':'Select all',()=>setSelected(selected.length===drafts.length?[]:drafts.map(d=>d.id)),busy||savingCount>0),h('small',null,selected.length+' selected')),
+            selected.length>0&&h(React.Fragment,null,h('select',{'aria-label':'Tag selected highlights',value:batchTag,disabled:busy,onChange:e=>setBatchTag(e.target.value)},h('option',{value:''},'Choose a tag…'),tags.map(t=>h('option',{key:t.id,value:t.id},t.name))),h('div',{className:'mc-inline'},button('Apply tag',batchTagging,busy||savingCount>0||!batchTag),button('Save selected to Stash',()=>publish(selected),busy||savingCount>0||drafts.some(d=>selected.includes(d.id)&&!d.primary))))),
+          h('div',{className:'mc-highlight-list'},drafts.length?drafts.map((d,i)=>h('article',{key:d.id,className:'mc-highlight-row'+(active===d.id?' mc-selected':'')},h('input',{type:'checkbox','aria-label':'Select highlight '+(i+1),checked:selected.includes(d.id),disabled:busy||d._saving,onChange:e=>setSelected(ids=>e.target.checked?[...ids,d.id]:ids.filter(id=>id!==d.id))}),
+            button(h(React.Fragment,null,h('strong',null,d.title||'Highlight '+(i+1)),h('small',null,patterns.frameTime(d.clip.start,scene?.files?.[0]?.frame_rate)+' → '+patterns.frameTime(d.clip.end,scene?.files?.[0]?.frame_rate)),h('small',null,d._saving?'Saving…':d._unsaved?'Not saved · retry':tags.find(t=>t.id===d.primary)?.name||'Untagged')),()=>refine(d),busy||d._saving,{'aria-label':'Refine highlight '+(i+1)}),
+            h('div',null,d._unsaved&&!d._saving&&button('Retry',()=>persist(d).catch(()=>{}),busy),button('×',()=>removeDraft(d),busy||d._saving,{'aria-label':'Remove highlight '+(i+1)})))):h('p',{className:'mc-draft-empty'},'Your highlights will appear here.\nPress I, keep watching, then O.')),
+          drafts.length>0&&h('details',null,h('summary',null,'Also add published markers to a compilation'),h('select',{'aria-label':'Add published markers to project',value:project,disabled:busy,onChange:e=>setProject(e.target.value)},h('option',{value:''},'Do not add to a project'),projects.map(p=>h('option',{key:p.id,value:p.id},p.name)))),
+          h('details',{className:'mc-marker-existing'},h('summary',null,'Existing Stash markers · '+(scene?.scene_markers?.length||0)),(scene?.scene_markers||[]).map(m=>button(m.title+' · '+time(m.seconds),()=>editMarker(m),busy,{key:m.id}))))));
   }
 
   function MarkerThumbnail({clip,uses}) {

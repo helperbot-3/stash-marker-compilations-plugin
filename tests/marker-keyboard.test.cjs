@@ -49,3 +49,20 @@ test('seeking preserves playback in marker creation and still pauses in the comp
     video.paused=false;await stepFrames(1);assert.equal(video.paused,!captureWhilePlaying);assert.deepEqual(destinations,[8,5.04]);
   }
 });
+
+test('marking after queued frame navigation uses the destination rather than the old decoded frame',async()=>{
+  let position=5,releaseStep;const stepped=new Promise(resolve=>{releaseStep=resolve;});
+  const marks=[],controls={current:null},queuedNavigation={current:0},navigationGeneration={current:0},inputQueue={current:Promise.resolve()};
+  const queue=source.slice(source.indexOf('    function enqueueStep('),source.indexOf('    function stepSecond('));
+  const controller=source.slice(source.indexOf('    useEffect(()=>{controls.current={',source.indexOf('  function TrimPreview(')),source.indexOf("    return h('section',{className:'mc-trimmer'"));
+  vm.runInNewContext(queue+controller,{
+    controls,queuedNavigation,navigationGeneration,inputQueue,useEffect:fn=>fn(),
+    navigation:{current:{position:()=>position}},video:{current:{currentTime:5}},
+    mark:(which,point)=>marks.push([which,point]),stepFrames:async()=>{await stepped;position=6;},
+    setFrameError:assert.fail
+  });
+  const move=controls.current.frame(1),mark=controls.current.mark('end');
+  releaseStep();await move;await mark;
+  assert.deepEqual(marks,[['end',6]]);
+  assert.equal(queuedNavigation.current,0);
+});

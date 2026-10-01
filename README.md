@@ -156,29 +156,36 @@ sequences or zones does not require generating clips again.
 - Generation runs in Stash's task queue. Cancelling also terminates its FFmpeg worker;
   completed clips are kept for reuse, while interrupted output is removed.
 
-## Create and refine reusable scene markers
+## Capture highlights now, tag and refine later
 
-Open a scene and select **Create markers**, or use **Create markers** in the
-compilation header and choose a scene. The workspace fills the available window,
-with a large video and three steps: choose a tag, mark your range, and save to Stash.
-Set both start and end before saving; after each new marker, mark the next range.
-Scene selection, optional hot zones, project collection and existing markers expand
-when needed. Expand **Markers in this scene** to edit an existing marker.
+Open a scene and select **Create markers**. The workspace opens that scene directly,
+with a large video and a highlight list. When entering from the compilation header,
+choose a scene first.
 
-- Outside text fields, **I** marks the start, **O** marks the end, **Enter** saves,
-  **Space** plays/pauses, and arrows step frames (left/right) or seconds (up/down).
-  Marking and navigating while playing keep playback running; paused video stays paused.
-  Shortcuts work on buttons and the source slider. Choosing a dropdown option returns
-  focus to the workspace. Text fields keep normal editing keys; press **Escape** to
-  leave a field or dropdown and resume video shortcuts.
-- Select a primary tag once and keep capturing ranges. Blank titles use the tag's
-  name. Recent tags and **☆** pinned favorites provide shortcuts. These preferences
-  are stored in the current browser; additional tags are available in the expandable field.
-- Choose a compilation under **Add to project media** to collect new markers
-  there without inserting timeline clips. Existing catalog copies remain snapshots.
-- Click an existing scene marker to edit it, then **Update marker** or **Save as new**.
-  **New range** returns to creation. **Undo last creation** removes the last newly
-  created marker and its optional catalog entry; timeline copies remain intact.
+1. **Capture:** press **I** at the beginning of a highlight, then **O** at its end.
+   Finishing automatically saves an untagged draft. Playback continues, and you can
+   immediately capture the next highlight. No title, tag or separate save click is required.
+2. **Refine later:** click a highlight to edit its range, title, tags and hot zones
+   in the same video viewport. **Keep draft** (or Enter) saves edits without creating
+   a regular marker. Returning to **Capture** or selecting another highlight also
+   saves the current draft's edits.
+3. **Publish:** choose a primary tag and **Save to Stash**. To work in batches,
+   select highlights, choose a tag and **Apply tag**, then **Save selected to Stash**.
+   Published drafts become ordinary Stash scene markers and leave the draft list.
+
+- **Space** plays/pauses. Arrows step frames (left/right) or seconds (up/down).
+  Navigation preserves playback state. **Escape** leaves text fields and dropdowns
+  to return to video shortcuts. In Capture, Enter also finishes a highlight.
+- Drafts persist in the plugin's SQLite database, including untagged ranges and hot
+  zones. A browser recovery copy protects pending captures and unsaved refinement
+  edits. Failed saves remain visible with **Retry**; errors do not silently discard drafts.
+- **Existing Stash markers** opens a draft copy for refinement. Choose **Update original**
+  to change that marker, or **Save as new** to create another. Capture never edits
+  existing markers automatically.
+- Expand **Also add published markers to a compilation** to collect published markers
+  in project media without inserting timeline clips.
+- Recent tags and **☆** pinned favorites remain available during refinement.
+  Blank titles use the chosen tag's name when publishing.
 
 The compilation clip inspector also provides **Update original marker** and
 **Save as new marker**. Review the title/tags before saving. Range/title/tag edits

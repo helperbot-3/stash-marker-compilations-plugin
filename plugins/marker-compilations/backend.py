@@ -1,5 +1,6 @@
 """Stash raw plugin. Standard library only; FFmpeg renders clips and FFprobe reads frame timestamps."""
 import re
+from contextlib import nullcontext
 import shutil
 from fractions import Fraction
 import hashlib
@@ -160,6 +161,7 @@ class Store:
         self.db = sqlite3.connect(root / 'compilations.sqlite3', timeout=30)
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS exports (id TEXT PRIMARY KEY, record TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS marker_drafts (id TEXT PRIMARY KEY, scene_id TEXT NOT NULL, revision INTEGER NOT NULL, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS marker_ranges (id TEXT PRIMARY KEY, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, revision INTEGER NOT NULL, phases TEXT NOT NULL)')
 
@@ -610,7 +612,7 @@ def marker_signature(marker):
     return (marker['title'], marker['seconds'], marker.get('end_seconds'), str(marker['primary_tag']['id']), sorted(str(t['id']) for t in marker.get('tags', [])))
 
 
-def save_marker(store, stash, args):
+def save_marker(store, stash, args, commit=True):
     clip = validate_clips([args['clip']])[0]
     source(clip, stash)  # Validate the range against the actual source duration.
     primary = str(args.get('primary_tag_id', ''))
@@ -633,7 +635,7 @@ def save_marker(store, stash, args):
     else:
         marker = stash.query('mutation($input:SceneMarkerCreateInput!){sceneMarkerCreate(input:$input){'+MARKER_FIELDS+'}}', {'input': fields})['sceneMarkerCreate']
     zones = clip.get('hot_zones', [clip['hot_zone']] if clip.get('hot_zone') else [])
-    with store.db:
+    with (store.db if commit else nullcontext()):
         store.db.execute('INSERT OR REPLACE INTO marker_ranges VALUES (?,?)', (str(marker['id']), json.dumps({'scene_id': clip['scene_id'], 'start': clip['start'], 'end': clip['end'], 'hot_zones': zones})))
     result = {'marker': marker, 'hot_zones': zones}
     if args.get('project_id'):
@@ -667,11 +669,97 @@ def undo_marker(store, stash, args):
     return {'warning': warning}
 
 
+def list_marker_drafts(store, scene_id):
+    return [json.loads(row[0]) for row in store.db.execute(
+        'SELECT document FROM marker_drafts WHERE scene_id=? ORDER BY rowid', (str(scene_id),))
+        if not json.loads(row[0]).get('published')]
+
+
+def save_marker_draft(store, draft):
+    clip = validate_clips([draft['clip']])[0]
+    id_ = str(draft.get('id') or uuid.uuid4())
+    if len(id_) > 100:
+        raise ValueError('Invalid draft ID')
+    primary = str(draft.get('primary', ''))
+    tags = draft.get('tag_ids', [])
+    if (primary and not primary.isdigit()) or not isinstance(tags, list) or any(not str(t).isdigit() for t in tags):
+        raise ValueError('Invalid draft tags')
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        row = store.db.execute('SELECT revision,document FROM marker_drafts WHERE id=?', (id_,)).fetchone()
+        revision = row[0] if row else 0
+        if draft.get('revision', 0) != revision or (row and json.loads(row[1]).get('published')):
+            raise ValueError('This draft changed in another window. Reopen it before editing.')
+        if row and json.loads(row[1])['clip']['scene_id'] != clip['scene_id']:
+            raise ValueError('A draft cannot change scenes')
+        result = {'id': id_, 'revision': revision + 1, 'clip': clip,
+                  'title': str(draft.get('title', ''))[:300], 'primary': primary,
+                  'tag_ids': sorted(set(str(t) for t in tags)), 'expected': draft.get('expected')}
+        store.db.execute('INSERT OR REPLACE INTO marker_drafts VALUES (?,?,?,?)',
+                         (id_, clip['scene_id'], result['revision'], json.dumps(result)))
+    return result
+
+
+def delete_marker_draft(store, args):
+    with store.db:
+        changed = store.db.execute('DELETE FROM marker_drafts WHERE id=? AND revision=?',
+                                  (str(args['id']), args['revision'])).rowcount
+        if not changed:
+            raise ValueError('The draft changed or was already removed. Reload the highlight list.')
+    return True
+
+
+def publish_marker_draft(store, stash, args):
+    # Serialize publication so retries after a lost response reuse the saved result.
+    store.db.execute('BEGIN IMMEDIATE')
+    try:
+        row = store.db.execute('SELECT document FROM marker_drafts WHERE id=?', (str(args['id']),)).fetchone()
+        if not row:
+            raise ValueError('Draft not found')
+        draft = json.loads(row[0])
+        if draft.get('published'):
+            store.db.rollback()
+            return draft['published']
+        if draft['revision'] != args['revision']:
+            raise ValueError('The draft changed. Reopen it before saving to Stash.')
+        result = save_marker(store, stash, {'mode': args.get('mode', 'new'), 'clip': draft['clip'],
+            'title': args.get('title') or draft['title'], 'primary_tag_id': draft['primary'],
+            'tag_ids': draft['tag_ids'], 'expected': draft.get('expected')}, commit=False)
+        draft['published'] = result
+        with store.db:
+            store.db.execute('UPDATE marker_drafts SET document=? WHERE id=?', (json.dumps(draft), draft['id']))
+        if args.get('project_id'):
+            try:
+                doc = store.get(args['project_id'])
+                item = dict(draft['clip'], marker_id=str(result['marker']['id']), title=result['marker']['title'], phases=[{'repeat': 1, 'speed': 1}])
+                if not any(media_key(m) == media_key(item) for m in doc['media']):
+                    doc['media'].append(item)
+                    store.save(doc)
+                result['added_to_project'] = True
+            except Exception as exc:
+                result['warning'] = 'Marker saved, but could not add it to project media: '+str(exc)
+            draft['published'] = result
+            with store.db:
+                store.db.execute('UPDATE marker_drafts SET document=? WHERE id=?', (json.dumps(draft), draft['id']))
+        return result
+    except Exception:
+        store.db.rollback()
+        raise
+
+
 def run(payload):
     conn, args = payload['server_connection'], payload.get('args', {})
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    if action == 'list_marker_drafts':
+        return list_marker_drafts(store, args['scene_id'])
+    if action == 'save_marker_draft':
+        return save_marker_draft(store, args['draft'])
+    if action == 'delete_marker_draft':
+        return delete_marker_draft(store, args)
+    if action == 'publish_marker_draft':
+        return publish_marker_draft(store, Stash(conn), args)
     if action == 'marker_context':
         return marker_context(store, Stash(conn), args['scene_id'], args['marker_id'])
     if action == 'undo_marker':
