@@ -132,7 +132,7 @@ def media_key(clip):
 def project_media(document):
     # Older projects derive their catalog from the saved timeline without changing it.
     items = {}
-    for clip in document.get('media', []) + document.get('clips', []):
+    for clip in document.get('media', document.get('clips', [])):
         items.setdefault(media_key(clip), clip)
     return list(items.values())
 
@@ -144,7 +144,7 @@ def validate(document):
     if not name or len(name) > 200:
         raise ValueError('Give the compilation a name of 1–200 characters')
     clean = validate_clips(document.get('clips', []))
-    media = validate_clips(document.get('media', []))
+    media = validate_clips(document.get('media', document.get('clips', [])))
     media = project_media({'media': media, 'clips': clean})
     if len(media) > 2000:
         raise ValueError('A project supports up to 2000 catalog markers')

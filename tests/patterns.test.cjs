@@ -59,6 +59,7 @@ test('catalog preserves imported media independently of timeline instances',()=>
   const clip={scene_id:'1',marker_id:'7',title:'Original',start:1,end:4};
   const media=patterns.catalog({clips:[clip,{...clip,start:2}]});
   assert.equal(media.length,1);
+  assert.deepEqual(patterns.catalog({media:[],clips:[clip]}),[],'removed media must not be restored from timeline');
   assert.equal(patterns.catalog({media,clips:[]}).length,1);
   const timeline=patterns.insertClip([],media[0],0);
   timeline[0].phases[0].repeat=5;timeline[0].start=2;

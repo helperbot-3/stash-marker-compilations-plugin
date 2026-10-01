@@ -51,6 +51,9 @@ class BackendTests(unittest.TestCase):
             saved = store.save(dict(empty, clips=[inserted, inserted]))
             self.assertEqual(len(saved['media']), 1)
             self.assertEqual(saved['media'][0]['start'], 1.25)
+            removed = store.save(dict(saved, media=[]))
+            self.assertEqual(store.get(removed['id'])['media'], [])
+            self.assertEqual(len(store.get(removed['id'])['clips']), 2)
             self.assertEqual(len(store.get('legacy')['clips']), 2)
             store.db.close()
         with self.assertRaises(ValueError):

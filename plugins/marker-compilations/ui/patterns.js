@@ -17,7 +17,7 @@
     'repeat-3':'Repeat 3× · normal', 'repeat-5':'Repeat 5× · normal', 'half-speed':'Once · half-speed', 'quarter-speed':'Once · quarter-speed',
     'normal-slow':'Normal → half-speed', 'slow-normal':'Half-speed → normal', 'progressive':'Slow down · 1× → ¾× → ½× → ¼×', 'slow-return':'Slow down & return · 1× → ¼× → 1×'};
   function mediaKey(c){return String(c.scene_id)+':'+(c.marker_id?'marker:'+c.marker_id:'range:'+c.start+':'+c.end);}
-  function catalog(document){const items=new Map();for(const c of [...(document.media||[]),...(document.clips||[])])if(!items.has(mediaKey(c)))items.set(mediaKey(c),copyClip(c));return [...items.values()];}
+  function catalog(document){const items=new Map();for(const c of (document.media??document.clips??[]))if(!items.has(mediaKey(c)))items.set(mediaKey(c),copyClip(c));return [...items.values()];}
   function insertClip(clips,clip,index){const result=clips.slice();result.splice(Math.max(0,Math.min(index,result.length)),0,copyClip(clip));return result;}
   function phases(clip) { return clip.phases || presets.once; }
   function hotZones(clip){return (Array.isArray(clip.hot_zones)?clip.hot_zones:clip.hot_zone?[clip.hot_zone]:[]).slice().sort((a,b)=>(a?.start||0)-(b?.start||0));}

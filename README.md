@@ -50,7 +50,11 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    to add it after the selection. Marker stills are loaded from Stash, including for
    existing projects; unavailable stills show a placeholder. A thumbnail badge shows
    how often the marker appears on the timeline. Each insertion has independent trim/pattern settings.
-   Removing a timeline clip keeps its catalog entry. Existing projects automatically
+   Removing a timeline clip keeps its catalog entry. Use **×** on a media item to remove
+   it from the catalog while keeping timeline copies and source markers unchanged.
+   **Undo** restores the last removed item while the catalog remains open. Save the
+   project to keep removals. Filter media by **All / Used / Unused**, or sort by
+   added order, name or duration. Existing projects automatically
    seed their catalog from saved timeline clips; their timeline stays unchanged.
 3. Single-click to select a timeline clip. Double-click (or press **Enter** on it) to open the compact two-column **Inspector**. The left
    column has the scrubber, 1 / 5 / 10-frame steps, and start/end
