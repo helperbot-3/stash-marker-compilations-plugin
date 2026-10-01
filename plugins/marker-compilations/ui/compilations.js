@@ -170,13 +170,14 @@
         total>0&&h('div',{className:'mc-playhead',style:{left:Math.min(current,total)*scale},'aria-hidden':true},h('span',null)))));
   }
 
-  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target,frameCache}) {
+  function TrimPreview({clip,onChange,onBeforePlay,controls,busy,target,frameCache,captureWhilePlaying=false}) {
     const client=useApolloClient(), video=useRef(null), pending=useRef(clip.start), limit=useRef(null);
     const [streams,setStreams]=useState([]), [stream,setStream]=useState(0), [duration,setDuration]=useState(0);
+    const latestClip=useRef({clip,onChange});latestClip.current={clip,onChange};
     const start=clip.start, end=clip.end;
     const [zoneSelection,setZoneSelection]=useState(0);
     const zones=patterns.identifiedZones(clip),zoneIndex=Math.min(zoneSelection,Math.max(0,zones.length-1)),zone=zones[zoneIndex];
-    function changeBoundary(which,value){const adjusted=patterns.adjustedRange(clip,{[which]:value},0,duration||Infinity);if(!adjusted)return false;return onChange({start:adjusted.start,end:adjusted.end});}
+    function changeBoundary(which,value){const adjusted=patterns.adjustedRange(latestClip.current.clip,{[which]:value},0,duration||Infinity);if(!adjusted)return false;return latestClip.current.onChange({start:adjusted.start,end:adjusted.end});}
     function updateZone(patch){
       const updated=patterns.adjustedRange(zone,patch,start,end,zones.filter((_,i)=>i!==zoneIndex));
       if(!updated){setError('Choose a time inside the clip and outside other zones.');return false;}setError('');
@@ -250,7 +251,7 @@
     }
     function enqueueStep(action){
       const generation=navigationGeneration.current;
-      inputQueue.current=inputQueue.current.then(()=>generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));
+      inputQueue.current=inputQueue.current.then(()=>generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));return inputQueue.current;
     }
     function stepSecond(direction){if(video.current&&ready&&!busy)seek(navigation.current.position()+direction);}
     function loaded(){
@@ -275,16 +276,17 @@
       if(selection){v.currentTime=zone?.start??start;setPosition(zone?.start??start);}
       v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
     }
-    async function mark(which){
-      const v=video.current;if(!v||v.seeking||frameBusy)return;
-      v.pause();limit.current=null;const current=v.currentTime;
+    async function mark(which,captured=null){
+      const v=video.current;if(!v||(captured===null&&v.seeking)||(frameBusy&&!captureWhilePlaying))return false;
+      if(!captureWhilePlaying)v.pause();limit.current=null;const current=captured??v.currentTime;
       let data=frameData.current, point=patterns.frameStep(data,current,0);
-      if(point===null){data=await loadFrames(current);if(!data)return;point=patterns.frameStep(data,current,0);}
-      if(point===null)return;
-      setPosition(point);if(which.startsWith('hot_'))updateZone({[which.slice(4)]:point});else changeBoundary(which,point);
+      if(point===null){data=await loadFrames(current);if(!data)return false;point=patterns.frameStep(data,current,0);}
+      if(point===null)return false;
+      setPosition(point);return which.startsWith('hot_')?updateZone({[which.slice(4)]:point})!==false:changeBoundary(which,point)!==false;
     }
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
+      mark:which=>{const captured=video.current?.currentTime;return enqueueStep(()=>mark(which,captured));},flush:()=>inputQueue.current,seek:position=>seek(position),
       preview:p=>{const ranges=patterns.stepRanges(clip,p.target);if(ranges.length)seek(ranges[0].start);},
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
@@ -306,7 +308,7 @@
         h('select',{'aria-label':'Fine adjustment step',value:step,onChange:e=>setStep(Number(e.target.value))},[1,5,10].map(s=>h('option',{key:s,value:s},s+' frame'+(s===1?'':'s')))),
         button('+',()=>enqueueStep(()=>stepFrames(1)),!ready||busy,{'aria-label':'Step forward',title:'Step forward '+step+' frame(s)'})),
         h('output',{'aria-label':'Trim preview time'},patterns.frameTime(position,fps))),
-      h('input',{'aria-label':'Source position',className:'mc-trim-slider',type:'range',min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready||busy,onChange:e=>seek(Number(e.target.value))}),
+      h('input',{'aria-label':'Source position',className:'mc-trim-slider',type:'range',style:captureWhilePlaying&&duration?{background:'linear-gradient(to right, #36404c '+(start/duration*100)+'%, #efbd74 '+(start/duration*100)+'%, #efbd74 '+(end/duration*100)+'%, #36404c '+(end/duration*100)+'%)'}:undefined,min:0,max:duration||1,step:.001,value:Math.min(position,duration),disabled:!ready||busy,onChange:e=>seek(Number(e.target.value))}),
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'Start',value:start,fps,disabled:busy,onFocus:onBeforePlay,onChange:start=>changeBoundary('start',start)}),
         button('↦',()=>seek(start),!ready||busy,{'aria-label':'Jump to start',title:'Jump to start'}),button('Set',()=>mark('start'),!ready||seeking||busy||frameBusy,{'aria-label':'Set start here'})),
       h('div',{className:'mc-boundary-row'},h(TimeField,{label:'End',value:end,fps,disabled:busy,onFocus:onBeforePlay,onChange:end=>changeBoundary('end',end)}),
@@ -379,11 +381,12 @@
       error&&h('p',{role:'alert'},error));
   }
 
-  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose,frameCache,customPatterns,onManagePatterns,onPlaySequence}) {
+  function Inspector({clip,busy,onChange,onApplyAll,onBeforePlay,trimControls,trimTarget,onClose,frameCache,customPatterns,onManagePatterns,onPlaySequence,onSaveMarker}) {
     if(!clip)return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},h('div',{className:'mc-panel-heading'},h('h2',null,'Inspector')),h('div',{className:'mc-inspector-empty'},'Select a timeline clip to edit.'));
     const phases=patterns.phases(clip);
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
       h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
+      h('div',{className:'mc-marker-save-actions'},clip.marker_id&&button('Update original marker',()=>onSaveMarker('update'),busy),button('Save as new marker',()=>onSaveMarker('new'),busy),h(Link,{to:'/marker-creation?scene='+clip.scene_id},'Marker creation mode ↗')),
       h('div',{className:'mc-inspector-columns'},
         h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget,frameCache}),
         h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('div',{className:'mc-sequence-heading'},h('h3',null,'Sequence'),
@@ -392,6 +395,68 @@
           h(SequenceEditor,{clip,disabled:busy,onChange:phases=>onChange({phases,hot_zones:patterns.identifiedZones(clip)}),onPreview:p=>trimControls.current?.preview(p),onPlay:onPlaySequence}),
           h('div',{className:'mc-pattern-actions'},button('Apply to all clips',onApplyAll,busy,{className:'mc-apply-pattern'}),
           button('Save / manage patterns',onManagePatterns,busy,{className:'mc-manage-patterns'})))));
+  }
+
+  function markerPreferences(){try{return JSON.parse(localStorage.getItem('mc-marker-preferences')||'{}');}catch{return {};}}
+  function rememberMarkerTag(id){try{const prefs=markerPreferences();localStorage.setItem('mc-marker-preferences',JSON.stringify({...prefs,last:id,recent:[id,...(prefs.recent||[]).filter(t=>t!==id)].slice(0,6)}));}catch{}}
+  async function markerOp(client,args){const result=await client.mutate({mutation:OP,variables:{args}});return result.data.runPluginOperation;}
+  function MarkerFields({tags,value,onChange,disabled}){
+    const [search,setSearch]=useState(''),[pins,setPins]=useState(()=>markerPreferences().pins||[]);
+    const primary=tags.find(t=>t.id===value.primary), recent=markerPreferences().recent||[];
+    const choices=tags.filter(t=>t.id===value.primary||t.name.toLowerCase().includes(search.toLowerCase())).slice(0,150);
+    if(primary&&!choices.some(t=>t.id===primary.id))choices.unshift(primary);
+    function pin(){const next=pins.includes(value.primary)?pins.filter(id=>id!==value.primary):pins.concat(value.primary);setPins(next);try{localStorage.setItem('mc-marker-preferences',JSON.stringify({...markerPreferences(),pins:next}));}catch{}}
+    return h('div',{className:'mc-marker-fields'},
+      h(Field,{label:'Title (optional)'},h('input',{'aria-label':'Marker title',value:value.title,placeholder:primary?.name||'Uses the primary tag name',disabled,maxLength:300,onChange:e=>onChange({...value,title:e.target.value})})),
+      h('div',{className:'mc-marker-tag-shortcuts'},[...new Set([...pins,...recent])].map(id=>{const tag=tags.find(t=>t.id===id);return tag&&button((pins.includes(id)?'★ ':'')+tag.name,()=>onChange({...value,primary:id}),disabled,{key:id,'aria-pressed':id===value.primary});})),
+      h(Field,{label:'Find a tag'},h('input',{type:'search','aria-label':'Find marker tag',value:search,disabled,onChange:e=>setSearch(e.target.value),placeholder:'Search tags…'})),
+      h('div',{className:'mc-inline'},h(Field,{label:'Primary tag'},h('select',{'aria-label':'Marker primary tag',value:value.primary,disabled,onChange:e=>onChange({...value,primary:e.target.value})},h('option',{value:''},'Choose a tag'),choices.map(t=>h('option',{key:t.id,value:t.id},t.name)))),button(pins.includes(value.primary)?'★':'☆',pin,disabled||!value.primary,{'aria-label':pins.includes(value.primary)?'Unpin marker tag':'Pin marker tag',title:'Keep this tag in the shortcut row'})),
+      h('details',null,h('summary',null,'Additional tags'+(value.tag_ids.length?' · '+value.tag_ids.length:'')),h('select',{multiple:true,'aria-label':'Additional marker tags',value:value.tag_ids,disabled,onChange:e=>onChange({...value,tag_ids:Array.from(e.target.selectedOptions,o=>o.value)})},tags.filter(t=>t.id!==value.primary).map(t=>h('option',{key:t.id,value:t.id},t.name)))));
+  }
+  function MarkerSaveForm({clip,mode,onSaved}){
+    const client=useApolloClient(),[tags,setTags]=useState([]),[expected,setExpected]=useState(null),[busy,setBusy]=useState(true),[error,setError]=useState('');
+    const [value,setValue]=useState({title:clip.title||'',primary:markerPreferences().last||'',tag_ids:[]});
+    useEffect(()=>{let disposed=false;async function load(){try{
+      const tagResult=await client.query({query:TAGS,fetchPolicy:'network-only'});if(disposed)return;setTags(tagResult.data.findTags.tags);
+      if(clip.marker_id){try{const context=await markerOp(client,{action:'marker_context',scene_id:clip.scene_id,marker_id:clip.marker_id});if(disposed)return;setExpected(context.marker);setValue({title:clip.title||context.marker.title,primary:context.marker.primary_tag.id,tag_ids:context.marker.tags.map(t=>t.id)});}catch(e){if(!disposed)setError(mode==='update'?e.message:'Original marker unavailable. Choose tags for the new marker.');}}
+    }catch(e){if(!disposed)setError(e.message);}finally{if(!disposed)setBusy(false);}}load();return()=>{disposed=true;};},[]);
+    async function save(){setBusy(true);setError('');try{const result=await markerOp(client,{action:'save_marker',mode,clip,title:value.title.trim()||tags.find(t=>t.id===value.primary)?.name||'',primary_tag_id:value.primary,tag_ids:value.tag_ids,expected});rememberMarkerTag(value.primary);onSaved(result.marker);}catch(e){setError(e.message);}finally{setBusy(false);}}
+    return h('section',{'aria-label':'Save reusable marker'},
+      h('p',null,time(clip.start)+' → '+time(clip.end)+' · '+patterns.hotZones(clip).length+' hot zones'),
+      h(MarkerFields,{tags,value,onChange:setValue,disabled:busy}),
+      h('p',{className:'mc-muted'},mode==='update'?'Updates the original Stash marker and its reusable hot zones. Existing timeline clips keep their saved ranges.':'Creates a new Stash marker with this range, tags and hot zones. The original marker is kept.'),
+      h('p',{className:'mc-muted'},'Repeat patterns stay with the compilation.'),error&&h('p',{role:'alert'},error),
+      button(mode==='update'?'Update original marker':'Save as new marker',save,busy||!value.primary||(mode==='update'&&!expected),{className:'mc-primary'}));
+  }
+
+  function MarkerWorkspace(){
+    const client=useApolloClient(),[query,setQuery]=useState(''),[scenes,setScenes]=useState([]),[sceneId,setSceneId]=useState(()=>new URLSearchParams(window.location.search).get('scene')||''),[scene,setScene]=useState(null);
+    const [clip,setClip]=useState(null),[tags,setTags]=useState([]),[value,setValue]=useState({title:'',primary:markerPreferences().last||'',tag_ids:[]});
+    const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[target,setTarget]=useState(null),[project,setProject]=useState(''),[projects,setProjects]=useState([]),[expected,setExpected]=useState(null),[lastCreated,setLastCreated]=useState(null);
+    const controls=useRef(null),cache=useRef([]),saving=useRef(false),clipRef=useRef(clip);clipRef.current=clip;
+    useEffect(()=>{client.query({query:TAGS}).then(r=>setTags(r.data.findTags.tags)).catch(e=>setMessage(e.message));markerOp(client,{action:'list'}).then(setProjects).catch(e=>setMessage(e.message));},[]);
+    useEffect(()=>{let disposed=false;const timer=setTimeout(()=>{client.query({query:gql`query MarkerCreationScenes($q:String){findScenes(filter:{q:$q,per_page:40,sort:"title",direction:ASC}){scenes{id title files{duration}}}}`,variables:{q:query}}).then(r=>{if(!disposed)setScenes(r.data.findScenes.scenes);}).catch(e=>{if(!disposed)setMessage(e.message);});},200);return()=>{disposed=true;clearTimeout(timer);};},[query]);
+    async function fetchScene(id){const r=await client.query({query:gql`query MarkerCreationScene($id:ID!){findScene(id:$id){id title files{duration} scene_markers{id title seconds end_seconds primary_tag{id name} tags{id name}}}}`,variables:{id},fetchPolicy:'network-only'});return r.data.findScene;}
+    useEffect(()=>{let disposed=false;setScene(null);setClip(null);setExpected(null);if(!sceneId)return;setBusy(true);fetchScene(sceneId).then(s=>{if(disposed)return;if(!s?.files?.[0]?.duration)throw Error('This scene has no playable file.');setScene(s);setClip({scene_id:s.id,title:'',start:0,end:Math.min(5,s.files[0].duration),hot_zones:[]});}).catch(e=>{if(!disposed)setMessage(e.message);}).finally(()=>{if(!disposed)setBusy(false);});return()=>{disposed=true;};},[sceneId]);
+    function change(patch){const next={...clipRef.current,...patch};if(!patterns.validHotZone(next)){setMessage('Keep hot zones inside the marker range, or start a New range.');return false;}clipRef.current=next;setClip(next);}
+    function newRange(){setExpected(null);setValue(v=>({...v,title:''}));setClip(c=>({...c,marker_id:'',title:'',hot_zones:[],hot_zone:null}));setMessage('New marker range. Press I for start, O for end, then Enter to save.');}
+    async function editMarker(marker){setBusy(true);setMessage('');try{const context=await markerOp(client,{action:'marker_context',scene_id:sceneId,marker_id:marker.id});setExpected(context.marker);setValue({title:marker.title,primary:marker.primary_tag.id,tag_ids:marker.tags.map(t=>t.id)});setClip({scene_id:sceneId,marker_id:marker.id,title:marker.title,start:marker.seconds,end:marker.end_seconds>marker.seconds?marker.end_seconds:Math.min(marker.seconds+5,scene.files[0].duration),hot_zones:context.hot_zones});controls.current?.seek(marker.seconds);}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+    async function save(mode='new'){
+      if(!clip||saving.current||busy)return;saving.current=true;setBusy(true);setMessage('');
+      try{if(await controls.current?.flush()===false)throw Error('The range could not be marked. Adjust the boundaries before saving.');const result=await markerOp(client,{action:'save_marker',mode,clip:clipRef.current,title:value.title.trim()||tags.find(t=>t.id===value.primary)?.name||'',primary_tag_id:value.primary,tag_ids:value.tag_ids,expected,project_id:project||undefined});rememberMarkerTag(value.primary);if(mode==='new')setLastCreated({marker:result.marker,scene_id:sceneId,project_id:result.added_to_project?project:undefined});
+        setExpected(mode==='update'?result.marker:null);setClip(c=>({...c,marker_id:mode==='update'?result.marker.id:'',title:mode==='update'?result.marker.title:'',...(mode==='new'?{hot_zones:[],hot_zone:null}:{})}));if(mode==='new')setValue(v=>({...v,title:''}));setScene(await fetchScene(sceneId));setMessage((mode==='update'?'Marker updated.':'Marker created. Mark the next range to continue.')+(result.added_to_project?' Added to project media.':'')+(result.warning?' '+result.warning:''));
+      }catch(e){setMessage(e.message);}finally{saving.current=false;setBusy(false);}
+    }
+    async function undo(){if(!lastCreated||busy)return;setBusy(true);try{const result=await markerOp(client,{action:'undo_marker',scene_id:lastCreated.scene_id,marker_id:lastCreated.marker.id,expected:lastCreated.marker,project_id:lastCreated.project_id});if(sceneId===lastCreated.scene_id)setScene(await fetchScene(sceneId));setLastCreated(null);setExpected(null);setMessage(result.warning||'Marker creation undone.');}catch(e){setMessage(e.message);}finally{setBusy(false);}}
+    useEffect(()=>{function key(e){if(e.target instanceof Element&&(e.target.closest('input,textarea,select,[contenteditable=true]')))return;if(e.ctrlKey||e.metaKey||e.altKey||busy||!clip)return;const k=e.key.toLowerCase();let action;
+      if(k==='i')action=()=>controls.current?.mark('start');else if(k==='o')action=()=>controls.current?.mark('end');else if(k===' '){action=()=>controls.current?.toggle();}else if(k==='arrowleft')action=()=>controls.current?.frame(-1);else if(k==='arrowright')action=()=>controls.current?.frame(1);else if(k==='arrowup')action=()=>controls.current?.second(-1);else if(k==='arrowdown')action=()=>controls.current?.second(1);else if(k==='enter'&&!e.repeat)action=()=>save(expected?'update':'new');
+      if(action){e.preventDefault();e.stopImmediatePropagation();action();}}
+      window.addEventListener('keydown',key,true);return()=>window.removeEventListener('keydown',key,true);});
+    return h('main',{className:'mc mc-marker-workspace'},h('header',{className:'mc-header'},h(Link,{to:'/marker-compilations'},'← Compilations'),h('h1',null,'Create scene markers'),scene&&h(Link,{to:'/scenes/'+scene.id},'Open scene ↗')),
+      h('div',{className:'mc-marker-scene-picker'},h(Field,{label:'Find a scene'},h('input',{type:'search','aria-label':'Find a scene',value:query,onChange:e=>setQuery(e.target.value)})),h(Field,{label:'Scene'},h('select',{'aria-label':'Marker creation scene',value:sceneId,disabled:busy,onChange:e=>setSceneId(e.target.value)},h('option',{value:''},'Choose a scene'),scene&&!scenes.some(s=>s.id===scene.id)&&h('option',{value:scene.id},scene.title||'Scene '+scene.id),scenes.map(s=>h('option',{key:s.id,value:s.id},s.title||'Scene '+s.id))))),
+      message&&h('p',{role:'status',className:'mc-notice'},message,lastCreated&&button('Undo last creation',undo,busy)),
+      clip&&h(React.Fragment,null,h('div',{className:'mc-marker-work-grid'},h('div',{className:'mc-marker-left'},h('section',{className:'mc-marker-screen','aria-label':'Marker preview',ref:setTarget}),h(TrimPreview,{key:sceneId,clip,onChange:change,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true})),h('aside',{className:'mc-marker-metadata'},h(MarkerFields,{tags,value,onChange:setValue,disabled:busy}),h(Field,{label:'Add to project media'},h('select',{'aria-label':'Add created markers to project',value:project,disabled:busy,onChange:e=>setProject(e.target.value)},h('option',{value:''},'Do not add to a project'),projects.map(p=>h('option',{key:p.id,value:p.id},p.name)))),h('div',{className:'mc-inline'},button(expected?'Update marker':'Save marker',()=>save(expected?'update':'new'),busy||!value.primary,{className:'mc-primary'}),expected&&button('Save as new',()=>save('new'),busy||!value.primary),button('New range',newRange,busy)),h('p',{className:'mc-muted'},'I · start   O · end   Enter · save   Space · play/pause'),h('p',{className:'mc-muted'},'← / → one frame · ↑ / ↓ one second'))),
+        h('section',{className:'mc-marker-existing','aria-label':'Scene markers'},h('h2',null,'Markers in this scene'),(scene?.scene_markers||[]).map(m=>button(m.title+' · '+time(m.seconds),()=>editMarker(m),busy,{key:m.id})))));
   }
 
   function MarkerThumbnail({clip,uses}) {
@@ -535,7 +600,7 @@
     function choose(next,discard=false){if(dirty&&!discard&&!window.confirm('Discard unsaved changes?'))return false;setInspectorOpen(false);setDoc({...next,media:patterns.catalog(next)});setTrimSession(n=>n+1);setPreview('compilation');setSelected(next.clips.length?0:null);setDirty(false);stop();setMessage('');return true;}
     async function perform(work){setBusy(true);setMessage('');try{await work();}catch(e){setMessage(e.message);}finally{setBusy(false);}}
     async function save(){const saved=await op({action:'save',document:doc});setDoc(saved);setDirty(false);await load();return saved;}
-    function add(marker){
+    async function add(marker){
       const duration=Number(defaultDuration),start=marker.seconds;
       if(!(duration>0&&Number.isFinite(duration))){setMessage('Default duration must be positive.');return;}
       const sourceDuration=(marker.scene.files[0]||{}).duration;
@@ -544,6 +609,7 @@
       const item={marker_id:marker.id,scene_id:marker.scene.id,title:marker.title||marker.primary_tag.name,start,end,phases:(presetPhases(defaultPattern,customPatterns)||patterns.presets.once).map(p=>({...p}))};
       if(media.some(c=>patterns.mediaKey(c)===patterns.mediaKey(item)))return;
       if(media.length>=2000){setMessage('A project supports up to 2000 catalog markers.');return;}
+      const context=await op({action:'marker_context',scene_id:item.scene_id,marker_id:item.marker_id});item.hot_zones=context.hot_zones;item.start=context.marker.seconds;item.end=context.marker.end_seconds>item.start?context.marker.end_seconds:Math.min(item.start+duration,sourceDuration||Infinity);item.title=context.marker.title||context.marker.primary_tag.name;
       edit({media:media.concat(item)});setMessage('Added '+item.title+' to project media.');
     }
     function insertMedia(key,index=selected==null?doc.clips.length:selected+1){
@@ -678,7 +744,7 @@
         view==='editor'?h(React.Fragment,null,h('input',{className:'mc-name','aria-label':'Compilation name',value:doc.name,maxLength:200,disabled:busy,onChange:e=>edit({name:e.target.value})}),
           h('span',{className:'mc-save-state',role:'status'},dirty?'Unsaved':doc.id?'Saved':'New'),
           button('Save',()=>perform(async()=>{await save();setMessage('Compilation saved.');}),busy),button('+ Add markers',()=>setModal('markers'),busy,{className:'mc-primary'})):
-          h(React.Fragment,null,h('span',{className:'mc-save-state'},documents.length+' saved'),button('New compilation',()=>{if(choose(blank()))setView('editor');},busy,{className:'mc-primary'})),button('Render video',()=>perform(openRender),busy||!doc.clips.length)),
+          h(React.Fragment,null,h('span',{className:'mc-save-state'},documents.length+' saved'),button('New compilation',()=>{if(choose(blank()))setView('editor');},busy,{className:'mc-primary'})),button('Render video',()=>perform(openRender),busy||!doc.clips.length),h(Link,{to:'/marker-creation'},'Create markers')),
       message&&h('div',{className:'mc-notice',role:'status'},message,button('×',()=>setMessage(''),false,{'aria-label':'Dismiss message'})),
       h('div',{className:'mc-workspace'},
         view==='viewer'&&h('aside',{className:'mc-library','aria-label':'Saved compilations'},h('div',{className:'mc-panel-heading'},h('h2',null,'Saved compilations'),button('Refresh',()=>perform(reload),busy)),
@@ -701,7 +767,7 @@
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause')))),
           view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(renderedVideo?.duration||total)),h('span',null,renderedVideo?'Playing rendered video':mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
         view==='editor'&&inspectorOpen&&clip&&h('div',{className:'mc-edit-sidebar'},
-          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,customPatterns,onManagePatterns:()=>perform(managePatterns),onPlaySequence:()=>perform(()=>play(0,selected)),trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.applySequence(patterns.portableSequence(clip),c),hot_zones:patterns.identifiedZones(c)}))})}))),
+          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,customPatterns,onManagePatterns:()=>perform(managePatterns),onPlaySequence:()=>perform(()=>play(0,selected)),onSaveMarker:mode=>setModal('marker-'+mode),trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.applySequence(patterns.portableSequence(clip),c),hot_zones:patterns.identifiedZones(c)}))})}))),
       view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):!renderedVideo&&h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
@@ -714,9 +780,10 @@
         h('p',{className:'mc-muted',role:'status'},loading?'Loading markers…':count+' markers'),
         message&&h('p',{role:'status'},message),
         h('div',{className:'mc-marker-grid'},!loading&&!markers.length&&h('p',null,'No markers match these filters.'),markers.map(m=>h('article',{key:m.id,className:'mc-marker'},
-          h('img',{src:m.screenshot,alt:'',loading:'lazy'}),h('div',null,h('strong',null,m.title||m.primary_tag.name),h('p',null,m.scene.title||'Scene '+m.scene.id),h('small',null,time(m.seconds)+' → '+(m.end_seconds>m.seconds?time(m.end_seconds):'default duration'))),button(media.some(c=>String(c.marker_id)===String(m.id))?'✓ In project':'+ Add',()=>add(m),busy||media.some(c=>String(c.marker_id)===String(m.id)),{'aria-label':(media.some(c=>String(c.marker_id)===String(m.id))?'In project: ':'Add ')+(m.title||m.primary_tag.name)})))),
+          h('img',{src:m.screenshot,alt:'',loading:'lazy'}),h('div',null,h('strong',null,m.title||m.primary_tag.name),h('p',null,m.scene.title||'Scene '+m.scene.id),h('small',null,time(m.seconds)+' → '+(m.end_seconds>m.seconds?time(m.end_seconds):'default duration'))),button(media.some(c=>String(c.marker_id)===String(m.id))?'✓ In project':'+ Add',()=>perform(()=>add(m)),busy||media.some(c=>String(c.marker_id)===String(m.id)),{'aria-label':(media.some(c=>String(c.marker_id)===String(m.id))?'In project: ':'Add ')+(m.title||m.primary_tag.name)})))),
         h('div',{className:'mc-pagination'},button('Previous page',()=>setPage(page-1),page===1||loading),h('span',null,'Page '+page),button('Next page',()=>setPage(page+1),page*24>=count||loading))),
         h(React.Fragment,null,h('span',{role:'status'},media.length+' markers in project'),button('Done',()=>setModal(null),false,{className:'mc-primary'})),'xl'),
+      (modal==='marker-update'||modal==='marker-new')&&clip&&dialog(modal==='marker-update'?'Update original marker':'Save as new marker',h(MarkerSaveForm,{clip,mode:modal==='marker-update'?'update':'new',onSaved:marker=>{setModal(null);setMessage('Saved marker: '+marker.title+'. Existing compilation clips are unchanged.');}}),button('Close',()=>setModal(null),false)),
       modal==='patterns'&&dialog('Repetition patterns',h(PatternManager,{initial:clip?patterns.portableSequence(clip):patterns.presets.once,zoneCount:clip?patterns.hotZones(clip).length:0,items:customPatterns,onSave:savePattern,onDelete:deletePattern}),button('Done',()=>setModal(null),false)),
       modal==='render'&&dialog('Render compilation video',h(React.Fragment,null,
         h('div',{className:'mc-render-options'},
@@ -746,6 +813,8 @@
         h('p',{role:'status'},jobStatus),message&&h('p',{role:'status'},message),
         h('div',{className:'mc-inline'},button('Generate clips',()=>perform(generate),busy||!!job||!doc.clips.length,{className:'mc-primary'}),job&&button('Cancel generation',()=>perform(async()=>{await client.mutate({mutation:gql`mutation($id:ID!){stopJob(job_id:$id)}`,variables:{id:job}});}),busy))),button('Done',()=>setModal(null),false)));
   }
+  api.patch.before('ScenePage.Tabs',props=>[{...props,children:h(React.Fragment,null,props.children,h(api.libraries.Bootstrap.Nav.Item,null,h(api.libraries.Bootstrap.Nav.Link,{as:Link,to:'/marker-creation?scene='+props.scene.id,eventKey:'marker-creation'},'Create markers')))}]);
+  api.register.route('/marker-creation',MarkerWorkspace);
   api.register.route('/marker-compilations',Page);
   api.patch.before('MainNavBar.MenuItems',props=>[{...props,children:h(React.Fragment,null,props.children,
     h(api.libraries.Bootstrap.Nav.Link,{as:'div',eventKey:'/marker-compilations',className:'col-4 col-sm-3 col-md-2 col-lg-auto'},

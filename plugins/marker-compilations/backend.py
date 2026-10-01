@@ -160,6 +160,7 @@ class Store:
         self.db = sqlite3.connect(root / 'compilations.sqlite3', timeout=30)
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS exports (id TEXT PRIMARY KEY, record TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS marker_ranges (id TEXT PRIMARY KEY, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, revision INTEGER NOT NULL, phases TEXT NOT NULL)')
 
     def list_patterns(self):
@@ -295,7 +296,7 @@ def frame_window(file, position, ffprobe):
     origin = float(metadata.get('format', {}).get('start_time', 0))
     radius = max(2, 12 / rate)
     lower, upper = max(0, position-radius), min(duration, position+radius)
-    interval = ['-read_intervals', '{}%{}'.format(lower+origin, upper+origin)]
+    interval = ['-read_intervals', '{:.9f}%{:.9f}'.format(lower+origin, upper+origin)]
     time_base = Fraction(stream.get('time_base', '1/1000000'))
     times = []
     timestamp_source = 'decoded_frames'
@@ -588,11 +589,95 @@ def list_exports(store, stash, root, plugin_dir, compilation_id):
     return result
 
 
+MARKER_FIELDS = 'id title seconds end_seconds primary_tag{id name} tags{id name}'
+
+
+def marker_context(store, stash, scene_id, marker_id):
+    scene = stash.query('query($id:ID!){findScene(id:$id){id scene_markers{'+MARKER_FIELDS+'}}}', {'id': str(scene_id)})['findScene']
+    marker = next((m for m in (scene or {}).get('scene_markers', []) if str(m['id']) == str(marker_id)), None)
+    if not marker:
+        raise ValueError('The original marker no longer exists in this scene. Save a new marker instead.')
+    row = store.db.execute('SELECT document FROM marker_ranges WHERE id=?', (str(marker_id),)).fetchone()
+    zones = []
+    if row:
+        saved = json.loads(row[0])
+        if saved['scene_id'] == str(scene_id) and saved['start'] == marker['seconds'] and saved['end'] == marker['end_seconds']:
+            zones = saved['hot_zones']
+    return {'marker': marker, 'hot_zones': zones}
+
+
+def marker_signature(marker):
+    return (marker['title'], marker['seconds'], marker.get('end_seconds'), str(marker['primary_tag']['id']), sorted(str(t['id']) for t in marker.get('tags', [])))
+
+
+def save_marker(store, stash, args):
+    clip = validate_clips([args['clip']])[0]
+    source(clip, stash)  # Validate the range against the actual source duration.
+    primary = str(args.get('primary_tag_id', ''))
+    tags = args.get('tag_ids', [])
+    if not primary.isdigit() or not isinstance(tags, list) or any(not str(t).isdigit() for t in tags):
+        raise ValueError('Choose a primary tag before saving the marker')
+    title = str(args.get('title', '')).strip()[:300]
+    if not title:
+        raise ValueError('Give the marker a title')
+    mode = args.get('mode')
+    if mode not in ('new', 'update'):
+        raise ValueError('Choose update or save as new')
+    fields = {'title': title, 'seconds': clip['start'], 'end_seconds': clip['end'], 'scene_id': clip['scene_id'], 'primary_tag_id': primary, 'tag_ids': sorted(set(str(t) for t in tags if str(t) != primary))}
+    if mode == 'update':
+        existing = marker_context(store, stash, clip['scene_id'], clip['marker_id'])['marker']
+        if not args.get('expected') or marker_signature(existing) != marker_signature(args['expected']):
+            raise ValueError('The original marker changed. Close and reopen this form before updating it.')
+        fields['id'] = clip['marker_id']
+        marker = stash.query('mutation($input:SceneMarkerUpdateInput!){sceneMarkerUpdate(input:$input){'+MARKER_FIELDS+'}}', {'input': fields})['sceneMarkerUpdate']
+    else:
+        marker = stash.query('mutation($input:SceneMarkerCreateInput!){sceneMarkerCreate(input:$input){'+MARKER_FIELDS+'}}', {'input': fields})['sceneMarkerCreate']
+    zones = clip.get('hot_zones', [clip['hot_zone']] if clip.get('hot_zone') else [])
+    with store.db:
+        store.db.execute('INSERT OR REPLACE INTO marker_ranges VALUES (?,?)', (str(marker['id']), json.dumps({'scene_id': clip['scene_id'], 'start': clip['start'], 'end': clip['end'], 'hot_zones': zones})))
+    result = {'marker': marker, 'hot_zones': zones}
+    if args.get('project_id'):
+        try:
+            doc = store.get(args['project_id'])
+            item = dict(clip, marker_id=str(marker['id']), title=marker['title'], phases=[{'repeat': 1, 'speed': 1}])
+            if not any(media_key(m) == media_key(item) for m in doc['media']):
+                doc['media'].append(item)
+                store.save(doc)
+            result['added_to_project'] = True
+        except Exception as exc:
+            result['warning'] = 'Marker saved, but could not add it to project media: '+str(exc)
+    return result
+
+
+def undo_marker(store, stash, args):
+    marker = marker_context(store, stash, args['scene_id'], args['marker_id'])['marker']
+    if not args.get('expected') or marker_signature(marker) != marker_signature(args['expected']):
+        raise ValueError('This marker has changed since creation and cannot be undone here.')
+    stash.query('mutation($id:ID!){sceneMarkerDestroy(id:$id)}', {'id': str(args['marker_id'])})
+    with store.db:
+        store.db.execute('DELETE FROM marker_ranges WHERE id=?', (str(args['marker_id']),))
+    warning = None
+    if args.get('project_id'):
+        try:
+            doc = store.get(args['project_id'])
+            doc['media'] = [m for m in doc['media'] if m.get('marker_id') != str(args['marker_id'])]
+            store.save(doc)
+        except Exception as exc:
+            warning = 'Marker removed; project media could not be refreshed: '+str(exc)
+    return {'warning': warning}
+
+
 def run(payload):
     conn, args = payload['server_connection'], payload.get('args', {})
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    if action == 'marker_context':
+        return marker_context(store, Stash(conn), args['scene_id'], args['marker_id'])
+    if action == 'undo_marker':
+        return undo_marker(store, Stash(conn), args)
+    if action == 'save_marker':
+        return save_marker(store, Stash(conn), args)
     root = Path(conn['Dir']) / 'marker-compilations'
     if action in ('export_config', 'prepare_export', 'list_exports', 'render_export', 'finalize_export', 'retry_import', 'export_job'):
         stash = Stash(conn)

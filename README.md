@@ -156,6 +156,36 @@ sequences or zones does not require generating clips again.
 - Generation runs in Stash's task queue. Cancelling also terminates its FFmpeg worker;
   completed clips are kept for reuse, while interrupted output is removed.
 
+## Create and refine reusable scene markers
+
+Open a scene and select **Create markers**, or use **Create markers** in the
+compilation header and choose a scene. This workspace reuses the trim preview,
+frame/second stepping, range controls and named hot zones.
+
+- Outside text fields, **I** marks the start, **O** marks the end, **Enter** saves,
+  **Space** plays/pauses, and arrows step frames (left/right) or seconds (up/down).
+  Marking while playing keeps playback running.
+- Select a primary tag once and keep capturing ranges. Blank titles use the tag's
+  name. Recent tags and **☆** pinned favorites provide shortcuts. These preferences
+  are stored in the current browser; additional tags are available in the expandable field.
+- Choose a compilation under **Add to project media** to collect new markers
+  there without inserting timeline clips. Existing catalog copies remain snapshots.
+- Click an existing scene marker to edit it, then **Update marker** or **Save as new**.
+  **New range** returns to creation. **Undo last creation** removes the last newly
+  created marker and its optional catalog entry; timeline copies remain intact.
+
+The compilation clip inspector also provides **Update original marker** and
+**Save as new marker**. Review the title/tags before saving. Range/title/tag edits
+are stored in Stash, so the markers work in its regular marker collection. Named
+hot zones are stored in the plugin's SQLite database and copied on future imports
+through Add markers. Back up that database to preserve them. Stash's native marker
+editor does not display these hot zones; if its marker range changes externally,
+stale plugin zones are ignored. Repeat/speed sequences remain compilation-specific.
+
+Updating an original never silently rewrites existing compilation clips or media
+catalog copies. Update checks reject changes made to the original while the form
+was open; reopen the form to review the current original before trying again.
+
 ## Render a complete video
 
 Choose **Render video** from a saved compilation or the editor, select 720p or 1080p,

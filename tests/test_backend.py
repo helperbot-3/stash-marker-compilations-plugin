@@ -210,6 +210,8 @@ class BackendTests(unittest.TestCase):
                                 'testsrc2=s=160x90:r=30000/1001:d=5', '-c:v', codec,
                                 '-bf', '2', str(source)], check=True)
                 result = b.frame_window({'path': str(source), 'duration': 5}, 2, 'ffprobe')
+                near_boundary = b.frame_window({'path': str(source), 'duration': 5}, 2.00002, 'ffprobe')
+                self.assertTrue(near_boundary['times'], 'small decimal offsets must not use scientific notation')
                 decoded = json.loads(subprocess.check_output([
                     'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-read_intervals', '0%4',
                     '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', str(source)]))
