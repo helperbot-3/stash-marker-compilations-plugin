@@ -159,8 +159,11 @@ sequences or zones does not require generating clips again.
 ## Create and refine reusable scene markers
 
 Open a scene and select **Create markers**, or use **Create markers** in the
-compilation header and choose a scene. This workspace reuses the trim preview,
-frame/second stepping, range controls and named hot zones.
+compilation header and choose a scene. The workspace fills the available window,
+with a large video and three steps: choose a tag, mark your range, and save to Stash.
+Set both start and end before saving; after each new marker, mark the next range.
+Scene selection, optional hot zones, project collection and existing markers expand
+when needed. Expand **Markers in this scene** to edit an existing marker.
 
 - Outside text fields, **I** marks the start, **O** marks the end, **Enter** saves,
   **Space** plays/pauses, and arrows step frames (left/right) or seconds (up/down).
