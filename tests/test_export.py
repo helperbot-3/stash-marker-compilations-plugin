@@ -35,6 +35,31 @@ class ExportTests(unittest.TestCase):
             self.assertEqual({i['id']:i['status'] for i in items}, {'rendering':'cancelled','importing':'import_error'})
             store.db.close()
 
+    def test_existing_render_gets_distinct_tag_without_losing_tags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=b.Store(Path(directory))
+            record=b.export_put(store,dict(id='render',scene_id='42'))
+            calls=[]
+            class Stash:
+                def query(self, query, variables=None):
+                    calls.append((query,variables))
+                    if 'findScene' in query: return {'findScene':{'id':'42','tags':[{'id':'old-compilation'},{'id':'user-tag'}]}}
+                    if 'findTags' in query:
+                        self_name=variables['name']
+                        assert self_name == 'Marker Compilations · Rendered'
+                        return {'findTags':{'tags':[]}}
+                    if 'tagCreate' in query: return {'tagCreate':{'id':'rendered-tag'}}
+                    if 'sceneUpdate' in query:
+                        assert variables['input']=={'id':'42','tag_ids':['old-compilation','rendered-tag','user-tag']}
+                        return {'sceneUpdate':{'id':'42'}}
+                    raise AssertionError(query)
+            migrated=b.migrate_rendered_tag(store,Stash(),record)
+            self.assertTrue(migrated['rendered_tag'])
+            count=len(calls)
+            b.migrate_rendered_tag(store,Stash(),migrated)
+            self.assertEqual(len(calls),count)
+            store.db.close()
+
     def test_cancelled_export_cleans_worker_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)

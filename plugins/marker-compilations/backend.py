@@ -526,6 +526,24 @@ def request_export_import(store, stash, id_):
     return export_patch(store, id_, import_job=job)
 
 
+def rendered_tag(stash):
+    name = 'Marker Compilations · Rendered'
+    tags = stash.query('query($name:String!){findTags(tag_filter:{name:{value:$name,modifier:EQUALS}},filter:{per_page:-1}){tags{id}}}', {'name': name})['findTags']['tags']
+    return tags[0]['id'] if tags else stash.query('mutation($name:String!){tagCreate(input:{name:$name}){id}}', {'name': name})['tagCreate']['id']
+
+
+def migrate_rendered_tag(store, stash, record):
+    if not record.get('scene_id') or record.get('rendered_tag'):
+        return record
+    scene = stash.query('query($id:ID!){findScene(id:$id){id tags{id}}}', {'id': record['scene_id']})['findScene']
+    if scene:
+        tag = rendered_tag(stash)
+        tags = {t['id'] for t in scene['tags']}
+        if tag not in tags:
+            stash.query('mutation($input:SceneUpdateInput!){sceneUpdate(input:$input){id}}', {'input': {'id': scene['id'], 'tag_ids': sorted(tags | {tag})}})
+    return export_patch(store, record['id'], rendered_tag=True)
+
+
 def finalize_export(store, stash, id_):
     record = export_get(store, id_)
     try:
@@ -533,14 +551,13 @@ def finalize_export(store, stash, id_):
         scene = next((s for s in scenes if any(Path(f['path']).resolve() == Path(record['path']).resolve() for f in s['files'])), None)
         if not scene:
             raise ValueError('The scan has not imported this video. Check Stash Tasks, then retry the library import.')
-        tags = stash.query('{findTags(tag_filter:{name:{value:"Compilation",modifier:EQUALS}},filter:{per_page:-1}){tags{id}}}')['findTags']['tags']
-        tag = tags[0]['id'] if tags else stash.query('mutation{tagCreate(input:{name:"Compilation"}){id}}')['tagCreate']['id']
+        tag = rendered_tag(stash)
         details = 'Rendered compilation: {}\nProject ID: {}\nSaved revision: {}\nEdit in Marker Compilations (/marker-compilations).\nSource scenes: {}'.format(record['name'], record['compilation_id'], record['revision'], ', '.join(sorted({c['scene_id'] for c in record['snapshot']['clips']})))
         update = {'id': scene['id'], 'title': record['name'], 'details': details, 'tag_ids': sorted(set([tag]+record.get('tag_ids', [])))}
         if record.get('copy_metadata'):
             update['performer_ids'] = record.get('performer_ids', [])
         stash.query('mutation($input:SceneUpdateInput!){sceneUpdate(input:$input){id}}', {'input': update})
-        record.update(status='ready', scene_id=scene['id'], error=None)
+        record.update(status='ready', scene_id=scene['id'], rendered_tag=True, error=None)
     except Exception as exc:
         record.update(status='import_error', error=str(exc))
     return export_put(store, record)
@@ -565,6 +582,7 @@ def list_exports(store, stash, root, plugin_dir, compilation_id):
                 record = export_patch(store, record['id'], status='import_error', error='Library import was interrupted. Retry import to finish adding the video.')
         if record['status'] == 'queued' and not record.get('job_id') and time.time()-record['created'] > 120:
             record = export_patch(store, record['id'], status='failed', error='The render could not be queued. Start a new render to retry.')
+        record = migrate_rendered_tag(store, stash, record)
         playable = export_link(record, plugin_dir) if record['status'] not in ('queued', 'rendering') else False
         result.append({k: v for k, v in record.items() if k not in ('snapshot', 'performer_ids', 'tag_ids')} | {'playable': playable})
     return result

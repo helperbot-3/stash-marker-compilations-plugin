@@ -162,8 +162,9 @@ black padding; slowdown preserves audio pitch. Cuts are rounded to output frames
 
 **Add to Stash library** is enabled by default. Choose a configured video library
 folder: the video is written into its `Marker Compilations` subfolder, scanned,
-and registered as a regular scene with the compilation title and `Compilation`
-tag. Source performers and tags can optionally be copied. If import fails, use
+and registered as a regular scene with the compilation title and `Marker Compilations · Rendered`
+tag. Previously rendered scenes tracked by the plugin receive this tag when you
+open their compilation; existing tags are preserved. Source performers and tags can optionally be copied. If import fails, use
 **Retry import**; the completed video is retained.
 
 Disable library import to keep the video in
