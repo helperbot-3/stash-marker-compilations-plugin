@@ -26,6 +26,9 @@ class PackagingTests(unittest.TestCase):
             archive = output / 'marker-compilations.zip'
             self.assertIn('sha256: ' + hashlib.sha256(archive.read_bytes()).hexdigest(), index)
             with zipfile.ZipFile(archive) as zipped:
-                self.assertEqual(len(zipped.namelist()), 7)
+                self.assertEqual(len(zipped.namelist()), 8)
+                self.assertIn('screening.py', zipped.namelist())
+                zipped.extractall(output / 'installed')
+                subprocess.run([sys.executable, '-c', 'import backend, screening'], cwd=output / 'installed', check=True, capture_output=True)
                 version = re.search(r'^version: (.+)$', zipped.read('marker-compilations.yml').decode(), re.M)[1]
                 self.assertIn('version: ' + version + '-', index)

@@ -13,7 +13,7 @@ package = root / 'plugins/marker-compilations'
 version = next(line.split(':', 1)[1].strip() for line in (package / 'marker-compilations.yml').read_text().splitlines() if line.startswith('version:'))
 archive = out / 'marker-compilations.zip'
 with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zipped:
-    for relative in ['marker-compilations.yml', 'backend.py', 'ui/patterns.js', 'ui/compilations.js', 'ui/compilations.css']:
+    for relative in ['marker-compilations.yml', 'backend.py', 'screening.py', 'ui/patterns.js', 'ui/compilations.js', 'ui/compilations.css']:
         zipped.write(package / relative, relative)
     for relative in ['README.md', 'LICENCE']:
         zipped.write(root / relative, relative)

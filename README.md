@@ -25,7 +25,7 @@ Repository: https://github.com/helperbot-3/stash-marker-compilations-plugin
 
 1. Ensure Python 3.9+ is available on the **Stash server**. No Python packages are required.
 2. Copy the entire `plugins/marker-compilations` directory into Stash's configured plugins directory.
-   Keep `marker-compilations.yml` **inside** that directory beside `backend.py` and `ui/`.
+   Keep `marker-compilations.yml` **inside** that directory beside `backend.py`, `screening.py`, and `ui/`.
 3. In Stash, choose **Settings → Plugins → Reload plugins**, then reload the browser.
 4. Open **Compilations** in Stash’s main navigation (or `/marker-compilations` on your Stash server). The Settings → Tools link remains available.
 
@@ -155,6 +155,63 @@ sequences or zones does not require generating clips again.
 - Invalid ranges, deleted scenes and missing cached clips are reported before playback.
 - Generation runs in Stash's task queue. Cancelling also terminates its FFmpeg worker;
   completed clips are kept for reuse, while interrupted output is removed.
+
+## Screen scenes for specific sections
+
+Open **Compilations → Screen scenes** and create a review project:
+
+1. Name the review and choose up to 12 existing marker tags to look for.
+2. For each target, optionally customize the **Screened** and **Absent** scene tag
+   names. Existing tags with those names are reused; missing tags are created.
+3. Filter the scene library by search, required scene tags, and studio. By default,
+   scenes already screened for every target are excluded.
+4. Optionally choose a compilation destination, or create a new compilation with
+   the review project's name. The queue is a snapshot of matching scenes.
+
+In the player, choose the active target and capture highlights with **I / O**.
+Each captured draft inherits that target's marker tag. Refine it before finishing,
+or choose **Save highlights & done** to publish that target's captured drafts and
+mark the scene screened. Published markers go into the destination's project media;
+you can arrange them on the compilation timeline afterward.
+
+- **None found** adds the screened and absent tags. It refuses to contradict
+  existing markers or drafts with that target tag.
+- **Done** adds the screened tag and removes an obsolete absent tag. A marker must
+  exist, or be successfully published from this review, before Done is recorded.
+- Completing a target selects the next pending target in the current scene. Once
+  all targets are finished, the player moves to the next pending scene.
+- **Skip for now** changes no scene tags. **Queue → Revisit skipped scenes** brings
+  skipped scenes back into the pending queue.
+- **Reopen target** removes only that target's screened/absent tags. Markers and
+  other targets' results remain intact.
+- Resume a project from **Screen scenes**. Queue position, active target, skipped
+  scenes, and playback positions are saved. Playback position is checkpointed
+  every five seconds and when using the review's navigation controls.
+
+### Portable screening results
+
+For the marker tag `Interview`, the default scene tags mean:
+
+| Scene tags | Interpretation |
+| --- | --- |
+| Neither tag | Not yet fully screened |
+| `Screened: Interview` | Screening completed |
+| `Screened: Interview` + `Absent: Interview` | Screening completed; none found |
+
+These are ordinary Stash tags, visible and searchable without this plugin. Merely
+having a marker does not mark a scene fully screened. Each target is independent.
+The plugin reads current Stash tags when opening or refreshing a queue and before
+recording a result; status-tag edits outside the plugin therefore affect the queue.
+Contradictory absence tags are shown as **Needs review**. Unrelated scene tags are
+preserved by additive/removal updates.
+
+The plugin stores only review configuration, queue snapshots, convenience progress,
+and highlight drafts in its SQLite database. Results and published markers stay in
+Stash. If publishing a batch fails partway through, remaining drafts stay available
+and the scene is not marked Done. Successfully published drafts are not duplicated
+when retrying. Deleted scenes can be skipped; deleted configured tags are reported
+rather than silently recreated. New library scenes can be picked up by starting
+another filtered review with **Only scenes with targets still to review** enabled.
 
 ## Capture highlights now, tag and refine later
 

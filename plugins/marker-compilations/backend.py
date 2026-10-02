@@ -161,6 +161,7 @@ class Store:
         self.db = sqlite3.connect(root / 'compilations.sqlite3', timeout=30)
         self.db.execute('CREATE TABLE IF NOT EXISTS compilations (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS exports (id TEXT PRIMARY KEY, record TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS screening_projects (id TEXT PRIMARY KEY, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS marker_drafts (id TEXT PRIMARY KEY, scene_id TEXT NOT NULL, revision INTEGER NOT NULL, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS marker_ranges (id TEXT PRIMARY KEY, document TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS patterns (id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE, revision INTEGER NOT NULL, phases TEXT NOT NULL)')
@@ -694,7 +695,7 @@ def save_marker_draft(store, draft):
             raise ValueError('A draft cannot change scenes')
         result = {'id': id_, 'revision': revision + 1, 'clip': clip,
                   'title': str(draft.get('title', ''))[:300], 'primary': primary,
-                  'tag_ids': sorted(set(str(t) for t in tags)), 'expected': draft.get('expected')}
+                  'tag_ids': sorted(set(str(t) for t in tags)), 'expected': draft.get('expected'), 'review_id': str(draft.get('review_id') or '')}
         store.db.execute('INSERT OR REPLACE INTO marker_drafts VALUES (?,?,?,?)',
                          (id_, clip['scene_id'], result['revision'], json.dumps(result)))
     return result
@@ -752,6 +753,9 @@ def run(payload):
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    if action and action.startswith('screening_'):
+        import screening
+        return screening.run(store, Stash(conn), args, publish_marker_draft)
     if action == 'list_marker_drafts':
         return list_marker_drafts(store, args['scene_id'])
     if action == 'save_marker_draft':
