@@ -454,6 +454,26 @@
     return {key,release,blur:()=>captured.clear()};
   }
 
+  function SearchPicker({label,options,value,onChange,multiple=false,placeholder,disabled=false}) {
+    const [search,setSearch]=useState(''),[open,setOpen]=useState(false),[active,setActive]=useState(0);
+    const id=useRef('mc-picker-'+patterns.uniqueId()).current,input=useRef(null);
+    const selected=multiple?value:value?[value]:[];
+    const matches=options.filter(option=>!selected.includes(option.id)&&option.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+    const index=Math.min(active,Math.max(0,matches.length-1));
+    function choose(option){onChange(multiple?[...selected,option.id]:option.id);setSearch('');setActive(0);setOpen(false);input.current?.focus();}
+    function key(e){
+      if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setOpen(true);setActive(open?Math.max(0,Math.min(matches.length-1,index+(e.key==='ArrowDown'?1:-1))):0);}
+      else if(e.key==='Enter'&&open){e.preventDefault();if(matches[index])choose(matches[index]);}
+      else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setOpen(false);setSearch('');}
+    }
+    useEffect(()=>{if(open)document.getElementById(id+'-'+index)?.scrollIntoView({block:'nearest'});},[open,index]);
+    return h('div',{className:'mc-field mc-search-picker',onBlur:e=>{if(!e.currentTarget.contains(e.relatedTarget)){setOpen(false);setSearch('');}}},
+      h('label',{htmlFor:id},label),
+      selected.length>0&&h('div',{className:'mc-picker-selected'},selected.map(value=>h('span',{key:value},options.find(o=>o.id===value)?.name||value,button('×',()=>{onChange(multiple?selected.filter(v=>v!==value):'');setSearch('');setActive(0);},disabled,{'aria-label':'Remove '+(options.find(o=>o.id===value)?.name||value)+' from '+label})))),
+      h('input',{id,ref:input,role:'combobox','aria-label':label,'aria-autocomplete':'list','aria-expanded':open,'aria-controls':id+'-results','aria-activedescendant':open&&matches.length?id+'-'+index:undefined,autoComplete:'off',disabled,value:search,placeholder:placeholder||'Search…',onFocus:()=>{setOpen(true);setActive(0);},onChange:e=>{setSearch(e.target.value);setActive(0);setOpen(true);},onKeyDown:key}),
+      open&&h('div',{id:id+'-results',role:'listbox','aria-label':label+' results',className:'mc-picker-results'},matches.length?matches.map((option,i)=>h('div',{id:id+'-'+i,key:option.id,role:'option','aria-selected':i===index,onMouseDown:e=>e.preventDefault(),onClick:()=>choose(option)},option.name)):h('div',{className:'mc-picker-empty',role:'status'},'No matching results')));
+  }
+
   function ScreeningPage(){
     const client=useApolloClient(),location=api.libraries.ReactRouterDOM.useLocation(),history=api.libraries.ReactRouterDOM.useHistory();
     const reviewId=new URLSearchParams(location.search).get('review');
@@ -464,7 +484,7 @@
       Promise.all([op({action:'screening_list'}),client.query({query:TAGS}),client.query({query:gql`query ScreeningStudios{findStudios(filter:{per_page:-1,sort:"name",direction:ASC}){studios{id name}}}`}),op({action:'list'}),reviewId?op({action:'screening_get',id:reviewId}):Promise.resolve(null)]).then(([all,t,s,p,r])=>{if(live){setItems(all);setTags(t.data.findTags.tags);setStudios(s.data.findStudios.studios);setProjects(p);setReview(r);}}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setBusy(false);});return()=>{live=false;};
     },[reviewId]);
     function editTarget(index,patch){setTargets(all=>all.map((t,i)=>i===index?{...t,...patch}:t));}
-    async function create(){setBusy(true);setError('');try{const r=await op({action:'screening_create',name,targets,filters:{q:query,tags:filterTags,studios:studio?[studio]:[]},unreviewed_only:unreviewed,project_id:destination==='new'?'':destination,new_compilation:destination==='new'});history.push('/marker-screening?review='+r.id);}catch(e){setError(e.message);}finally{setBusy(false);}}
+    async function create(){setBusy(true);setError('');try{const r=await op({action:'screening_create',name,targets:targets.map(t=>({...t,screened_name:t.screened_name.trim(),absent_name:t.absent_name.trim()})),filters:{q:query,tags:filterTags,studios:studio?[studio]:[]},unreviewed_only:unreviewed,project_id:destination==='new'?'':destination,new_compilation:destination==='new'});history.push('/marker-screening?review='+r.id);}catch(e){setError(e.message);}finally{setBusy(false);}}
     async function progress(position){const id=review.id,scene_id=review.current_id;positionQueue.current=positionQueue.current.catch(()=>{}).then(()=>op({action:'screening_progress',id,scene_id,position}));return positionQueue.current;}
     async function action(kind,value){
       await positionQueue.current.catch(()=>{});
@@ -491,12 +511,20 @@
       review?h(React.Fragment,null,h('div',{className:'mc-inline'},button('Refresh Stash status',()=>perform(()=>action('refresh')),busy),button('Revisit skipped scenes',()=>perform(()=>action('revisit')),busy),h('span',null,'Screening results come from ordinary Stash scene tags.')),
         h('div',{className:'mc-review-queue'},review.scenes.map(s=>h('article',{key:s.id},h('div',null,h('strong',null,s.title),h('small',null,s.skipped?'Skipped for now':s.missing?'Scene deleted':'')),h('div',{className:'mc-review-statuses'},review.targets.map(t=>h('span',{key:t.marker_tag_id,className:'mc-review-state mc-state-'+s.statuses[t.marker_tag_id].state},t.name+' · '+labels[s.statuses[t.marker_tag_id].state]))),button('Review',()=>perform(()=>action('select',s.id)),busy||s.missing))))):
       h('div',{className:'mc-screening-layout'},h('section',{className:'mc-review-setup'},h('h2',null,'New review project'),h('p',{className:'mc-muted'},'Choose what to look for, then work through a scene queue. Captured highlights inherit the active target tag.'),
-        h(Field,{label:'Project name'},h('input',{'aria-label':'Review project name',value:name,onChange:e=>setName(e.target.value),placeholder:'Interviews'})),h('h3',null,'What are you looking for?'),
-        targets.map((t,i)=>h('div',{key:i,className:'mc-review-target-setup'},h('div',{className:'mc-inline'},h(Field,{label:'Marker tag'},h('select',{'aria-label':'Target tag '+(i+1),value:t.marker_tag_id,onChange:e=>{const tag=tags.find(t=>t.id===e.target.value);editTarget(i,{marker_tag_id:e.target.value,screened_name:tag?'Screened: '+tag.name:'',absent_name:tag?'Absent: '+tag.name:''});}},h('option',{value:''},'Choose target tag'),tags.map(tag=>h('option',{key:tag.id,value:tag.id},tag.name)))),targets.length>1&&button('×',()=>setTargets(all=>all.filter((_,index)=>index!==i)),false,{'aria-label':'Remove target '+(i+1)})),
-          h('details',null,h('summary',null,'Stash scene tags · customize or reuse existing'),h(Field,{label:'Screened tag'},h('input',{'aria-label':'Screened tag '+(i+1),list:'mc-review-tag-names',value:t.screened_name,onChange:e=>editTarget(i,{screened_name:e.target.value})})),h(Field,{label:'None-found tag'},h('input',{'aria-label':'Absent tag '+(i+1),list:'mc-review-tag-names',value:t.absent_name,onChange:e=>editTarget(i,{absent_name:e.target.value})}))))),
-        h('datalist',{id:'mc-review-tag-names'},tags.map(t=>h('option',{key:t.id,value:t.name}))),button('+ Add target',()=>setTargets(all=>[...all,{marker_tag_id:'',screened_name:'',absent_name:''}]),targets.length>=12),
-        h('h3',null,'Scenes to review'),h(Field,{label:'Search scenes'},h('input',{'aria-label':'Screening scene search',value:query,onChange:e=>setQuery(e.target.value),placeholder:'All scenes, or a search term'})),
-        h('div',{className:'mc-review-filters'},h(Field,{label:'Scene tags · require all selected'},h('select',{multiple:true,'aria-label':'Screening scene tags',value:filterTags,onChange:e=>setFilterTags(Array.from(e.target.selectedOptions,o=>o.value))},tags.map(t=>h('option',{key:t.id,value:t.id},t.name)))),h(Field,{label:'Studio'},h('select',{'aria-label':'Screening studio',value:studio,onChange:e=>setStudio(e.target.value)},h('option',{value:''},'All studios'),studios.map(s=>h('option',{key:s.id,value:s.id},s.name))))),
+        h(Field,{label:'Project name'},h('input',{'aria-label':'Review project name',value:name,onChange:e=>setName(e.target.value),placeholder:'Interviews'})),h('h3',null,'1. Choose the highlights to capture'),
+        h('p',{className:'mc-review-help'},'Choose a tag for each kind of section you want to find, such as Interview. While reviewing, select a target and capture highlights with I / O. New highlights receive that target’s tag. These choices do not filter the scene queue.'),
+        targets.map((t,i)=>{
+          const tag=tags.find(tag=>tag.id===t.marker_tag_id),screened=t.screened_name.trim()||(tag?'Screened: '+tag.name:''),absent=t.absent_name.trim()||(tag?'Absent: '+tag.name:'');
+          return h('div',{key:i,className:'mc-review-target-setup'},h('div',{className:'mc-inline'},h(SearchPicker,{label:'Target tag '+(i+1),options:tags.filter(tag=>tag.id===t.marker_tag_id||!targets.some(other=>other.marker_tag_id===tag.id)),value:t.marker_tag_id,disabled:busy,placeholder:'Search marker tags…',onChange:id=>{const tag=tags.find(t=>t.id===id);editTarget(i,{marker_tag_id:id,screened_name:tag?'Screened: '+tag.name:'',absent_name:tag?'Absent: '+tag.name:''});}}),targets.length>1&&button('×',()=>setTargets(all=>all.filter((_,index)=>index!==i)),busy,{'aria-label':'Remove target '+(i+1)})),
+            tag?h(React.Fragment,null,h('div',{className:'mc-review-tag-defaults'},h('span',null,'Status tags on the scene'),h('div',null,h('small',null,'Reviewed'),h('code',null,screened)),h('div',null,h('small',null,'None found · also adds'),h('code',null,absent))),
+              h('details',null,h('summary',null,'Edit status tag names'),h('p',{className:'mc-review-help'},'Done adds the reviewed tag. None found adds both tags. Existing tags with these names are reused; missing tags are created.'),h(Field,{label:'Reviewed tag'},h('input',{'aria-label':'Screened tag '+(i+1),list:'mc-review-tag-names',value:t.screened_name,placeholder:'Screened: '+tag.name,onChange:e=>editTarget(i,{screened_name:e.target.value})})),h(Field,{label:'None-found tag'},h('input',{'aria-label':'Absent tag '+(i+1),list:'mc-review-tag-names',value:t.absent_name,placeholder:'Absent: '+tag.name,onChange:e=>editTarget(i,{absent_name:e.target.value})})))):
+              h('p',{className:'mc-review-help'},'Choose a target to see its default “Screened: …” and “Absent: …” scene tags.'));
+        }),
+        h('datalist',{id:'mc-review-tag-names'},tags.map(t=>h('option',{key:t.id,value:t.name}))),button('+ Add target',()=>setTargets(all=>[...all,{marker_tag_id:'',screened_name:'',absent_name:''}]),busy||targets.length>=12),
+        h('h3',null,'2. Filter the scenes in your queue'),h('p',{className:'mc-review-help'},'Only scenes matching all filters below enter the queue. Scene tags must already be on the scene; selecting them here does not add tags. Leave these fields empty to review your whole library.'),
+        h(Field,{label:'Search scene text'},h('input',{'aria-label':'Screening scene search',value:query,onChange:e=>setQuery(e.target.value),placeholder:'All scenes, or a search term'})),
+        h('div',{className:'mc-review-filters'},h(SearchPicker,{label:'Scene tags',options:tags,value:filterTags,multiple:true,onChange:setFilterTags,disabled:busy,placeholder:'Search and add scene tags…'}),h(SearchPicker,{label:'Studio',options:studios,value:studio,onChange:setStudio,disabled:busy,placeholder:'All studios · search to filter…'})),
+        h('p',{className:'mc-review-help'},'A scene must have every selected scene tag and match the selected studio.'),
         h('label',null,h('input',{type:'checkbox',checked:unreviewed,onChange:e=>setUnreviewed(e.target.checked)}),' Only scenes with targets still to review'),
         h(Field,{label:'Collect published markers in'},h('select',{'aria-label':'Screening compilation destination',value:destination,onChange:e=>setDestination(e.target.value)},h('option',{value:''},'No compilation'),h('option',{value:'new'},'Create a compilation with this project’s name'),projects.map(p=>h('option',{key:p.id,value:p.id},p.name)))),
         h('p',{className:'mc-muted'},'Creates missing status tags, or reuses tags with the chosen names. The queue is a snapshot of matching scenes; no scene tags change until you finish a review.'),
