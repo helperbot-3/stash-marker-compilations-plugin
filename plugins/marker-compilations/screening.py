@@ -201,7 +201,7 @@ def result(store, stash, args, publish):
         published_here = False
         for draft in drafts:
             if draft.get('review_id') == project['id']:
-                saved = publish(store, stash, {'id': draft['id'], 'revision': draft['revision'], 'mode': 'new', 'title': draft['title'] or target.get('title') or target['name'], 'project_id': project['project_id']})
+                saved = publish(store, stash, {'id': draft['id'], 'revision': draft['revision'], 'mode': 'new', 'add_to_timeline': True, 'title': draft['title'] or target.get('title') or target['name'], 'project_id': project['project_id']})
                 published_here = True
                 if saved.get('warning'):
                     warnings.append(saved['warning'])

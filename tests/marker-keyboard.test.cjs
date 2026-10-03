@@ -78,3 +78,13 @@ test('capture marks survive playback generation changes while navigation is canc
   await Promise.all([first,stale,last]);
   assert.deepEqual(marks,['in','out']);
 });
+
+test('keyboard frame navigation uses the selected frame step, including one-frame precision',async()=>{
+  const controller=source.slice(source.indexOf('    useEffect(()=>{controls.current={',source.indexOf('  function TrimPreview(')),source.indexOf("    return h('section',{className:'mc-trimmer'"));
+  for(const selected of [5,1,10]){
+    const calls=[],controls={current:null};
+    vm.runInNewContext(controller,{controls,queuedNavigation:{current:0},useEffect:fn=>fn(),enqueueStep:async fn=>fn(),stepFrames:(direction,amount=selected)=>calls.push([direction,amount])});
+    await controls.current.frame(1);await controls.current.frame(-1);
+    assert.deepEqual(calls,[[1,selected],[-1,selected]]);
+  }
+});

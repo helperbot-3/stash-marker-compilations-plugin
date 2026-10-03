@@ -720,25 +720,36 @@ def publish_marker_draft(store, stash, args):
         draft = json.loads(row[0])
         if draft.get('published'):
             store.db.rollback()
-            return draft['published']
-        if draft['revision'] != args['revision']:
-            raise ValueError('The draft changed. Reopen it before saving to Stash.')
-        result = save_marker(store, stash, {'mode': args.get('mode', 'new'), 'clip': draft['clip'],
-            'title': args.get('title') or draft['title'], 'primary_tag_id': draft['primary'],
-            'tag_ids': draft['tag_ids'], 'expected': draft.get('expected')}, commit=False)
-        draft['published'] = result
-        with store.db:
-            store.db.execute('UPDATE marker_drafts SET document=? WHERE id=?', (json.dumps(draft), draft['id']))
-        if args.get('project_id'):
+            result = draft['published']
+        else:
+            if draft['revision'] != args['revision']:
+                raise ValueError('The draft changed. Reopen it before saving to Stash.')
+            result = save_marker(store, stash, {'mode': args.get('mode', 'new'), 'clip': draft['clip'],
+                'title': args.get('title') or draft['title'], 'primary_tag_id': draft['primary'],
+                'tag_ids': draft['tag_ids'], 'expected': draft.get('expected')}, commit=False)
+            draft['published'] = result
+            with store.db:
+                store.db.execute('UPDATE marker_drafts SET document=? WHERE id=?', (json.dumps(draft), draft['id']))
+        if args.get('project_id') and not result.get('added_to_project'):
             try:
                 doc = store.get(args['project_id'])
                 item = dict(draft['clip'], marker_id=str(result['marker']['id']), title=result['marker']['title'], phases=[{'repeat': 1, 'speed': 1}])
+                changed = False
                 if not any(media_key(m) == media_key(item) for m in doc['media']):
                     doc['media'].append(item)
+                    changed = True
+                if args.get('add_to_timeline') and args.get('mode', 'new') != 'update':
+                    if not any(c.get('marker_id') == item['marker_id'] for c in doc['clips']):
+                        doc['clips'].append(dict(item))
+                        changed = True
+                    result['added_to_timeline'] = True
+                if changed:
                     store.save(doc)
                 result['added_to_project'] = True
+                result.pop('warning', None)
             except Exception as exc:
-                result['warning'] = 'Marker saved, but could not add it to project media: '+str(exc)
+                result.pop('added_to_timeline', None)
+                result['warning'] = 'Marker saved, but could not add it to the compilation: '+str(exc)
             draft['published'] = result
             with store.db:
                 store.db.execute('UPDATE marker_drafts SET document=? WHERE id=?', (json.dumps(draft), draft['id']))

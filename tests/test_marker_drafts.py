@@ -69,3 +69,37 @@ class DraftTests(unittest.TestCase):
             self.assertEqual(b.list_marker_drafts(store,'1'),[second])
             self.assertEqual(len(stash.markers),1)
             store.db.close()
+
+    def test_screening_capture_appends_in_order_once_and_updates_do_not_append(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=b.Store(Path(directory));stash=FakeStash();project=store.save(document(clips=[]))
+            for start in (8,2):
+                draft=b.save_marker_draft(store,{'clip':{'scene_id':'1','start':start,'end':start+1},'primary':'1','title':'Captured'})
+                args=dict(draft,project_id=project['id'],add_to_timeline=True)
+                first=b.publish_marker_draft(store,stash,args)
+                self.assertTrue(first['added_to_timeline'])
+                self.assertEqual(b.publish_marker_draft(store,stash,args),first)
+            doc=store.get(project['id']);self.assertEqual([c['start'] for c in doc['clips']],[8,2]);self.assertEqual(len(doc['media']),2)
+            marker=stash.markers[0]
+            edited=b.save_marker_draft(store,{'clip':{'scene_id':'1','marker_id':marker['id'],'start':8,'end':10},'primary':'1','title':'Edited','expected':marker})
+            b.publish_marker_draft(store,stash,dict(edited,mode='update',project_id=project['id'],add_to_timeline=True))
+            self.assertEqual(len(store.get(project['id'])['clips']),2)
+            self.assertEqual(len(stash.markers),2)
+            store.db.close()
+
+    def test_failed_timeline_addition_can_retry_without_creating_marker_twice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=b.Store(Path(directory));stash=FakeStash();project=store.save(document(clips=[]))
+            draft=b.save_marker_draft(store,{'clip':{'scene_id':'1','start':1,'end':2},'primary':'1','title':'Retry'})
+            args=dict(draft,project_id=project['id'],add_to_timeline=True)
+            save=store.save
+            def fail(doc):raise ValueError('Compilation changed')
+            store.save=fail
+            result=b.publish_marker_draft(store,stash,args)
+            self.assertIn('warning',result);self.assertEqual(store.get(project['id'])['clips'],[])
+            store.save=save
+            result=b.publish_marker_draft(store,stash,args)
+            self.assertNotIn('warning',result);self.assertTrue(result['added_to_timeline'])
+            b.publish_marker_draft(store,stash,args)
+            self.assertEqual(len(stash.markers),1);self.assertEqual(len(store.get(project['id'])['clips']),1)
+            store.db.close()

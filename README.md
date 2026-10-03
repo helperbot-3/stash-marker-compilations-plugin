@@ -90,7 +90,7 @@ folder. No separate service, npm installation, or frontend build is needed to ru
 5. **Space** plays or pauses the inspected source preview while the inspector is open,
    and the compilation timeline otherwise. In the inspector, **Left / Right** seek
    backward / forward one second; **Up / Down** step forward / backward exactly
-   one source frame (regardless of the step dropdown). Seeking pauses the preview and leaves trim boundaries
+   the selected frame step (five frames by default; choose one for precision). Seeking pauses the preview and leaves trim boundaries
    unchanged. Arrow keys keep their normal behavior in editable fields and dropdowns.
    Space leaves text
    typing fields and dialogs alone. Focused buttons, dropdowns, numeric controls,
@@ -173,7 +173,10 @@ Open **Compilations → Screen scenes** and create a review project:
 In the player, choose the active target. **I** starts a marker and **O** immediately
 saves it as a regular Stash scene marker with the target's title and tags. Keep
 watching and repeat I/O to add more markers. If configured, saved markers also
-appear in the compilation's project media.
+appear in the compilation's project media and are appended to its timeline in
+capture order. Existing timeline clips stay in place; editing a marker does not
+append another copy. Markers already collected by older versions are not
+retroactively inserted—drag those from project media if desired.
 
 The marker list shows saved scene markers. Select one to edit its range, title,
 tags or hot zones, then choose **Save changes** to update that same marker.
@@ -248,7 +251,7 @@ choose a scene first.
    select highlights, choose a tag and **Apply tag**, then **Save selected to Stash**.
    Published drafts become ordinary Stash scene markers and leave the draft list.
 
-- **Space** plays/pauses. Left/right move −/+1 second; up/down move +/−1 frame.
+- **Space** plays/pauses. Left/right move −/+1 second; up/down move forward/back by the selected frame step (default: five).
   Navigation preserves playback state. **Escape** leaves text fields and dropdowns
   to return to video shortcuts. In Capture, Enter also finishes a highlight.
 - Drafts persist in the plugin's SQLite database, including untagged ranges and hot
@@ -324,4 +327,4 @@ The scene highlight workspace places the viewer, highlights list, and inspector 
 separate columns. Select a highlight to edit its in/out times, title, tags and hot
 zones in the inspector. The source-format selector is under **Playback source**.
 Both the compilation inspector and scene highlights use Left/Right for −/+1 second
-and Up/Down for +/−1 frame. Space returns keyboard focus to the viewer workspace.
+and Up/Down for the selected frame step (five by default). Space returns keyboard focus to the viewer workspace.
