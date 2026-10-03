@@ -454,14 +454,21 @@
     return {key,release,blur:()=>captured.clear()};
   }
 
-  function SearchPicker({label,options,value,onChange,multiple=false,placeholder,disabled=false}) {
-    const [search,setSearch]=useState(''),[open,setOpen]=useState(false),[active,setActive]=useState(0);
+  function SearchPicker({label,options,value,onChange,multiple=false,placeholder,disabled=false,onCreate,existingOptions=options}) {
+    const [search,setSearch]=useState(''),[open,setOpen]=useState(false),[active,setActive]=useState(0),[creating,setCreating]=useState(false),[createError,setCreateError]=useState('');
+    const creatingRef=useRef(false);
     const id=useRef('mc-picker-'+patterns.uniqueId()).current,input=useRef(null);
     const selected=multiple?value:value?[value]:[];
     const matches=options.filter(option=>!selected.includes(option.id)&&option.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+    const newName=search.trim();
+    if(onCreate&&newName&&!existingOptions.some(o=>o.name.toLocaleLowerCase()===newName.toLocaleLowerCase()))matches.push({id:'create',name:'Create tag “'+newName+'”',create:true});
     const index=Math.min(active,Math.max(0,matches.length-1));
-    function choose(option){onChange(multiple?[...selected,option.id]:option.id);setSearch('');setActive(0);setOpen(false);input.current?.focus();}
+    async function choose(option){
+      if(disabled||creatingRef.current)return;
+      if(option.create){creatingRef.current=true;setCreating(true);setCreateError('');try{await onCreate(newName);setSearch('');setActive(0);setOpen(false);}catch(e){setCreateError(e.message);}finally{creatingRef.current=false;setCreating(false);}return;}
+      onChange(multiple?[...selected,option.id]:option.id);setSearch('');setActive(0);setOpen(false);input.current?.focus();}
     function key(e){
+      if(creatingRef.current){e.preventDefault();return;}
       if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setOpen(true);setActive(open?Math.max(0,Math.min(matches.length-1,index+(e.key==='ArrowDown'?1:-1))):0);}
       else if(e.key==='Enter'&&open){e.preventDefault();if(matches[index])choose(matches[index]);}
       else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setOpen(false);setSearch('');}
@@ -469,9 +476,9 @@
     useEffect(()=>{if(open)document.getElementById(id+'-'+index)?.scrollIntoView({block:'nearest'});},[open,index]);
     return h('div',{className:'mc-field mc-search-picker',onBlur:e=>{if(!e.currentTarget.contains(e.relatedTarget)){setOpen(false);setSearch('');}}},
       h('label',{htmlFor:id},label),
-      selected.length>0&&h('div',{className:'mc-picker-selected'},selected.map(value=>h('span',{key:value},options.find(o=>o.id===value)?.name||value,button('×',()=>{onChange(multiple?selected.filter(v=>v!==value):'');setSearch('');setActive(0);},disabled,{'aria-label':'Remove '+(options.find(o=>o.id===value)?.name||value)+' from '+label})))),
-      h('input',{id,ref:input,role:'combobox','aria-label':label,'aria-autocomplete':'list','aria-expanded':open,'aria-controls':id+'-results','aria-activedescendant':open&&matches.length?id+'-'+index:undefined,autoComplete:'off',disabled,value:search,placeholder:placeholder||'Search…',onFocus:()=>{setOpen(true);setActive(0);},onChange:e=>{setSearch(e.target.value);setActive(0);setOpen(true);},onKeyDown:key}),
-      open&&h('div',{id:id+'-results',role:'listbox','aria-label':label+' results',className:'mc-picker-results'},matches.length?matches.map((option,i)=>h('div',{id:id+'-'+i,key:option.id,role:'option','aria-selected':i===index,onMouseDown:e=>e.preventDefault(),onClick:()=>choose(option)},option.name)):h('div',{className:'mc-picker-empty',role:'status'},'No matching results')));
+      selected.length>0&&h('div',{className:'mc-picker-selected'},selected.map(value=>h('span',{key:value},options.find(o=>o.id===value)?.name||value,button('×',()=>{onChange(multiple?selected.filter(v=>v!==value):'');setSearch('');setActive(0);},disabled||creating,{'aria-label':'Remove '+(options.find(o=>o.id===value)?.name||value)+' from '+label})))),
+      h('input',{id,ref:input,role:'combobox','aria-label':label,'aria-autocomplete':'list','aria-expanded':open,'aria-controls':id+'-results','aria-activedescendant':open&&matches.length?id+'-'+index:undefined,autoComplete:'off',disabled,readOnly:creating,'aria-busy':creating,value:search,placeholder:placeholder||'Search…',onFocus:()=>{setOpen(true);setActive(0);},onChange:e=>{setSearch(e.target.value);setCreateError('');setActive(0);setOpen(true);},onKeyDown:key}),
+      open&&h('div',{id:id+'-results',role:'listbox','aria-label':label+' results',className:'mc-picker-results'},matches.length?matches.map((option,i)=>h('div',{id:id+'-'+i,key:option.id,role:'option','aria-selected':i===index,onMouseDown:e=>e.preventDefault(),onClick:()=>choose(option)},option.create&&creating?'Creating tag…':option.name)):h('div',{className:'mc-picker-empty',role:'status'},'No matching results')),createError&&h('small',{role:'alert'},createError));
   }
 
   function ScreeningPage(){
@@ -484,6 +491,17 @@
       Promise.all([op({action:'screening_list'}),client.query({query:TAGS}),client.query({query:gql`query ScreeningStudios{findStudios(filter:{per_page:-1,sort:"name",direction:ASC}){studios{id name}}}`}),op({action:'list'}),reviewId?op({action:'screening_get',id:reviewId}):Promise.resolve(null)]).then(([all,t,s,p,r])=>{if(live){setItems(all);setTags(t.data.findTags.tags);setStudios(s.data.findStudios.studios);setProjects(p);setReview(r);}}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setBusy(false);});return()=>{live=false;};
     },[reviewId]);
     function editTarget(index,patch){setTargets(all=>all.map((t,i)=>i===index?{...t,...patch}:t));}
+    async function createTarget(index,name){
+      setBusy(true);try{
+      // Recheck Stash before creating so tags added in another tab can be reused.
+      const result=await client.query({query:TAGS,fetchPolicy:'network-only'}),all=[...result.data.findTags.tags];
+      let tag=all.find(t=>t.name.toLocaleLowerCase()===name.toLocaleLowerCase());
+      if(tag&&targets.some((t,i)=>i!==index&&t.marker_tag_id===tag.id))throw new Error('This tag is already another target.');
+      if(!tag){const result=await client.mutate({mutation:gql`mutation ScreeningCreateTag($input:TagCreateInput!){tagCreate(input:$input){id name}}`,variables:{input:{name}}});tag=result.data.tagCreate;all.push(tag);}
+      setTags([...all].sort((a,b)=>a.name.localeCompare(b.name)));
+      editTarget(index,{marker_tag_id:tag.id,screened_name:'Screened: '+tag.name,absent_name:'Absent: '+tag.name});
+      }finally{setBusy(false);}
+    }
     async function create(){setBusy(true);setError('');try{const r=await op({action:'screening_create',name,targets:targets.map(t=>({...t,screened_name:t.screened_name.trim(),absent_name:t.absent_name.trim()})),filters:{q:query,tags:filterTags,studios:studio?[studio]:[]},unreviewed_only:unreviewed,project_id:destination==='new'?'':destination,new_compilation:destination==='new'});history.push('/marker-screening?review='+r.id);}catch(e){setError(e.message);}finally{setBusy(false);}}
     async function progress(position){const id=review.id,scene_id=review.current_id;positionQueue.current=positionQueue.current.catch(()=>{}).then(()=>op({action:'screening_progress',id,scene_id,position}));return positionQueue.current;}
     async function action(kind,value){
@@ -515,7 +533,7 @@
         h('p',{className:'mc-review-help'},'Choose a tag for each kind of section you want to find, such as Interview. While reviewing, select a target and capture highlights with I / O. New highlights receive that target’s tag. These choices do not filter the scene queue.'),
         targets.map((t,i)=>{
           const tag=tags.find(tag=>tag.id===t.marker_tag_id),screened=t.screened_name.trim()||(tag?'Screened: '+tag.name:''),absent=t.absent_name.trim()||(tag?'Absent: '+tag.name:'');
-          return h('div',{key:i,className:'mc-review-target-setup'},h('div',{className:'mc-inline'},h(SearchPicker,{label:'Target tag '+(i+1),options:tags.filter(tag=>tag.id===t.marker_tag_id||!targets.some(other=>other.marker_tag_id===tag.id)),value:t.marker_tag_id,disabled:busy,placeholder:'Search marker tags…',onChange:id=>{const tag=tags.find(t=>t.id===id);editTarget(i,{marker_tag_id:id,screened_name:tag?'Screened: '+tag.name:'',absent_name:tag?'Absent: '+tag.name:''});}}),targets.length>1&&button('×',()=>setTargets(all=>all.filter((_,index)=>index!==i)),busy,{'aria-label':'Remove target '+(i+1)})),
+          return h('div',{key:i,className:'mc-review-target-setup'},h('div',{className:'mc-inline'},h(SearchPicker,{label:'Target tag '+(i+1),options:tags.filter(tag=>tag.id===t.marker_tag_id||!targets.some(other=>other.marker_tag_id===tag.id)),value:t.marker_tag_id,disabled:busy,existingOptions:tags,onCreate:name=>createTarget(i,name),placeholder:'Search or create a marker tag…',onChange:id=>{const tag=tags.find(t=>t.id===id);editTarget(i,{marker_tag_id:id,screened_name:tag?'Screened: '+tag.name:'',absent_name:tag?'Absent: '+tag.name:''});}}),targets.length>1&&button('×',()=>setTargets(all=>all.filter((_,index)=>index!==i)),busy,{'aria-label':'Remove target '+(i+1)})),
             tag?h(React.Fragment,null,h('div',{className:'mc-review-tag-defaults'},h('span',null,'Status tags on the scene'),h('div',null,h('small',null,'Reviewed'),h('code',null,screened)),h('div',null,h('small',null,'None found · also adds'),h('code',null,absent))),
               h('details',null,h('summary',null,'Edit status tag names'),h('p',{className:'mc-review-help'},'Done adds the reviewed tag. None found adds both tags. Existing tags with these names are reused; missing tags are created.'),h(Field,{label:'Reviewed tag'},h('input',{'aria-label':'Screened tag '+(i+1),list:'mc-review-tag-names',value:t.screened_name,placeholder:'Screened: '+tag.name,onChange:e=>editTarget(i,{screened_name:e.target.value})})),h(Field,{label:'None-found tag'},h('input',{'aria-label':'Absent tag '+(i+1),list:'mc-review-tag-names',value:t.absent_name,placeholder:'Absent: '+tag.name,onChange:e=>editTarget(i,{absent_name:e.target.value})})))):
               h('p',{className:'mc-review-help'},'Choose a target to see its default “Screened: …” and “Absent: …” scene tags.'));
