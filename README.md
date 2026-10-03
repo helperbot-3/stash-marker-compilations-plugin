@@ -170,11 +170,21 @@ Open **Compilations → Screen scenes** and create a review project:
 4. Optionally choose a compilation destination, or create a new compilation with
    the review project's name. The queue is a snapshot of matching scenes.
 
-In the player, choose the active target and capture highlights with **I / O**.
-Each captured draft inherits that target's title, primary tag and additional tags. Refine it before finishing,
-or choose **Save highlights & done** to publish that target's captured drafts and
-mark the scene screened. Published markers go into the destination's project media;
-you can arrange them on the compilation timeline afterward.
+In the player, choose the active target. **I** starts a marker and **O** immediately
+saves it as a regular Stash scene marker with the target's title and tags. Keep
+watching and repeat I/O to add more markers. If configured, saved markers also
+appear in the compilation's project media.
+
+The marker list shows saved scene markers. Select one to edit its range, title,
+tags or hot zones, then choose **Save changes** to update that same marker.
+**Discard edits** keeps the saved marker unchanged. **New marker** returns to
+capturing; switching is blocked while edits need saving or discarding.
+
+**Finish target review** marks the scene screened for that target; it does not
+need to be pressed to save each marker. Old unsaved captures and failed saves are
+preserved as **Not saved in Stash** entries with edit/retry controls. A successful
+retry reuses its publication receipt, avoiding duplicate markers. The standalone
+untagged capture workspace retains its draft workflow.
 
 - **None found** adds the screened and absent tags. It refuses to contradict
   existing markers matching the target title and tags, or drafts captured for that target.
