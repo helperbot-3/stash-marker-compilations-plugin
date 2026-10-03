@@ -122,3 +122,15 @@ test('one-second jumps bypass slow frame lookups and late frame results cannot u
   releaseFrames({times:[10,10.2]});await frame;
   assert.deepEqual(writes,[9,8],'stale frame lookup must not move playback back');
 });
+
+test('scrubbing restores workspace focus without stealing focus from text fields or other views',()=>{
+  class FocusTarget {constructor(kind){this.kind=kind;}matches(){return ['video','range','slider'].includes(this.kind);}}
+  const document={activeElement:null};let focused=0;
+  const root={contains:target=>target.kind!=='outside',focus:options=>{assert.equal(options.preventScroll,true);focused++;}};
+  const restore=vm.runInNewContext(source.slice(source.indexOf('  function restoreMarkerPlaybackFocus('),source.indexOf('  function markerKeyboard('))+';restoreMarkerPlaybackFocus',{document,Element:FocusTarget});
+  for(const kind of ['video','range','slider']){document.activeElement=new FocusTarget(kind);restore({current:root});}
+  assert.equal(focused,3);
+  for(const kind of ['text','select','outside']){document.activeElement=new FocusTarget(kind);restore({current:root});}
+  document.activeElement=new FocusTarget('video');restore({current:null});
+  assert.equal(focused,3);
+});

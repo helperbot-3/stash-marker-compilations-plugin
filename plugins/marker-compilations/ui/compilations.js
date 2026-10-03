@@ -440,6 +440,11 @@
       button(mode==='update'?'Update original marker':'Save as new marker',save,busy||!value.primary||(mode==='update'&&!expected),{className:'mc-primary'}));
   }
 
+  function restoreMarkerPlaybackFocus(workspace){
+    const root=workspace.current,active=document.activeElement;
+    if(root&&active instanceof Element&&root.contains(active)&&active.matches('video,input[type="range"],[role="slider"]'))root.focus({preventScroll:true});
+  }
+
   function markerKeyboard({controls,save,busy,enabled,focus,captured}){
     const consume=e=>{e.preventDefault();e.stopImmediatePropagation();};
     function key(e){
@@ -658,7 +663,7 @@
     const current=drafts.find(d=>d.id===active),savingCount=drafts.filter(d=>d._saving).length;
     const matchesProject=m=>review?.targets.some(t=>patterns.markerMatchesTarget(m,t));
     const visibleMarkers=(scene?.scene_markers||[]).filter(m=>allMarkers||createdMarkers.includes(m.id)||reusedMarkers.includes(m.id)||matchesProject(m));
-    return h('main',{className:'mc mc-marker-workspace '+(!active?'mc-capturing':'mc-refining'),ref:workspace,tabIndex:-1,onChange:e=>{if(e.target instanceof Element&&e.target.matches('select'))workspace.current?.focus();}},
+    return h('main',{className:'mc mc-marker-workspace '+(!active?'mc-capturing':'mc-refining'),ref:workspace,tabIndex:-1,onPointerUpCapture:()=>requestAnimationFrame(()=>restoreMarkerPlaybackFocus(workspace)),onSeekedCapture:()=>restoreMarkerPlaybackFocus(workspace),onChange:e=>{if(e.target instanceof Element&&e.target.matches('select'))workspace.current?.focus();}},
       h('header',{className:'mc-header'},h(Link,{to:review?'/marker-screening':'/marker-compilations',onClick:e=>{if(dirty||captureStart!==null||savingCount){e.preventDefault();setMessage(review?'Save changes or finish the current marker before leaving.':'Keep your draft or finish the current highlight before leaving.');}}},review?'← Review projects':'← Compilations'),h('h1',null,review?'Scene markers':'Scene highlights'),scene&&h(Link,{to:'/scenes/'+scene.id,onClick:e=>{if(dirty||captureStart!==null||savingCount){e.preventDefault();setMessage(review?'Save changes or finish the current marker before leaving.':'Keep your draft or finish the current highlight before leaving.');}}},(scene.title||'Scene '+scene.id)+' ↗')),
       review&&h('section',{className:'mc-screening-toolbar','aria-label':'Screening review'},h('div',{className:'mc-review-title'},h('strong',null,review.name),h('span',null,(review.scene_ids.indexOf(sceneId)+1)+' / '+review.scene_ids.length+' scenes · '+review.scenes.filter(s=>Object.values(s.statuses).every(v=>['done','absent'].includes(v.state))).length+' complete'),button('Queue',()=>reviewAction('queue'),busy),button('Skip for now',()=>reviewAction('skip'),busy),button('Next pending',()=>reviewAction('next'),busy)),
         h('div',{className:'mc-review-targets'},review.targets.map(t=>button((t.title||t.name)+' · '+reviewLabels[reviewScene?.statuses[screeningTargetKey(t)]?.state||'pending'],()=>reviewAction('target',screeningTargetKey(t)),busy||captureStart!==null,{key:screeningTargetKey(t),'aria-pressed':screeningTargetKey(t)===review.active_target,className:'mc-state-'+reviewScene?.statuses[screeningTargetKey(t)]?.state}))),
