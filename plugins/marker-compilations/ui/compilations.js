@@ -498,7 +498,9 @@
       let tag=all.find(t=>t.name.toLocaleLowerCase()===name.toLocaleLowerCase());
       if(tag&&targets.some((t,i)=>i!==index&&t.marker_tag_id===tag.id))throw new Error('This tag is already another target.');
       if(!tag){const result=await client.mutate({mutation:gql`mutation ScreeningCreateTag($input:TagCreateInput!){tagCreate(input:$input){id name}}`,variables:{input:{name}}});tag=result.data.tagCreate;all.push(tag);}
-      setTags([...all].sort((a,b)=>a.name.localeCompare(b.name)));
+      all.sort((a,b)=>a.name.localeCompare(b.name));
+      client.writeQuery({query:TAGS,data:{...result.data,findTags:{...result.data.findTags,tags:all}}});
+      setTags(all);
       editTarget(index,{marker_tag_id:tag.id,screened_name:'Screened: '+tag.name,absent_name:'Absent: '+tag.name});
       }finally{setBusy(false);}
     }
