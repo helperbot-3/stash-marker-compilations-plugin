@@ -249,9 +249,9 @@
       onBeforePlay();if(!captureWhilePlaying)v.pause();limit.current=null;const target=Math.max(0,Math.min(duration,value));
       navigation.current.request(target);
     }
-    function enqueueStep(action){
+    function enqueueStep(action,cancelOnNavigation=true){
       const generation=navigationGeneration.current;
-      inputQueue.current=inputQueue.current.then(()=>generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));return inputQueue.current;
+      inputQueue.current=inputQueue.current.then(()=>!cancelOnNavigation||generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));return inputQueue.current;
     }
     function stepSecond(direction){if(video.current&&ready&&!busy)seek(navigation.current.position()+direction);}
     function loaded(){
@@ -288,7 +288,7 @@
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
       position:()=>ready?navigation.current.position():null,
-      mark:which=>{const afterNavigation=queuedNavigation.current>0,captured=navigation.current.position();return enqueueStep(()=>mark(which,afterNavigation?navigation.current.position():captured));},flush:()=>inputQueue.current,seek:position=>seek(position),
+      mark:which=>{const afterNavigation=queuedNavigation.current>0,captured=navigation.current.position();return enqueueStep(()=>mark(which,afterNavigation?navigation.current.position():captured),false);},flush:()=>inputQueue.current,seek:position=>seek(position),
       preview:p=>{const ranges=patterns.stepRanges(clip,p.target);if(ranges.length)seek(ranges[0].start);},
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
@@ -332,7 +332,7 @@
           null)),
       frameError&&h('p',{role:'alert'},frameError),
       ready&&!valid&&h('p',{role:'alert'},'Choose start < end within the source.'),
-      streams.length>1&&h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;navigationGeneration.current++;navigation.current.reset();video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type))));
+      streams.length>1&&h('details',{className:'mc-stream-options'},h('summary',null,'Playback source'),h('select',{'aria-label':'Trim source stream',value:stream,disabled:busy,onChange:e=>{pending.current=position;navigationGeneration.current++;navigation.current.reset();video.current.pause();limit.current=null;setReady(false);setSeeking(true);setStream(Number(e.target.value));}},streams.map((s,i)=>h('option',{key:i,value:i},s.label||s.mime_type)))));
   }
 
   function SequenceEditor({clip,onChange,disabled,onPreview,onPlay}) {
@@ -444,10 +444,10 @@
       let action;
       if(k==='i'||k==='o')action=()=>controls.current?.mark(k==='i'?'start':'end');
       else if(k===' ')action=()=>controls.current?.toggle();
-      else if(k==='arrowleft'||k==='arrowright')action=()=>controls.current?.frame(k==='arrowleft'?-1:1);
-      else if(k==='arrowup'||k==='arrowdown')action=()=>controls.current?.second(k==='arrowup'?-1:1);
+      else if(k==='arrowleft'||k==='arrowright')action=()=>controls.current?.second(k==='arrowleft'?-1:1);
+      else if(k==='arrowup'||k==='arrowdown')action=()=>controls.current?.frame(k==='arrowup'?1:-1);
       else if(k==='enter')action=save;
-      if(!action)return;consume(e);captured.add(k);
+      if(!action)return;consume(e);captured.add(k);if(k===' ')focus();
       if(!e.repeat||k.startsWith('arrow'))action();
     }
     function release(e){const k=e.key.toLowerCase();if(captured.delete(k))consume(e);}
@@ -640,12 +640,15 @@
       !clip&&h('p',{className:'mc-muted'},busy?'Loading highlights…':'Choose a scene, then capture highlights with I and O. Tagging can wait.'),
       clip&&h('div',{className:'mc-marker-work-grid'},h('div',{className:'mc-marker-left'},
         h('div',{className:'mc-marker-guide'},h('div',{className:'mc-inline'},button('Capture',captureMode,busy,{'aria-pressed':!active}),h('strong',null,active?'Refine highlight':captureStart!==null?'● Capturing from '+time(captureStart):'I · start   O · finish & keep')),
-          h('span',null,'Space · play/pause   ← / → · frame   ↑ / ↓ · second   Esc · leave field')),
-        h('section',{className:'mc-marker-screen','aria-label':'Marker preview',ref:setTarget}),
-        h(TrimPreview,{key:sceneId,initialPosition:review?.positions?.[sceneId],clip,onChange:change,onCapture:active?null:capture,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true})),
-        h('aside',{className:'mc-marker-metadata'},
-          active&&h('section',{className:'mc-draft-refine'},h('div',{className:'mc-panel-heading'},h('h2',null,'Refine highlight'),h('small',null,dirty?'Unsaved edits':'Draft saved')),h(MarkerFields,{tags,value,onChange:metadata,disabled:busy}),
+          h('span',null,'Space · play/pause   ← / → · −/+1 sec   ↑ / ↓ · +/−1 frame   Esc · leave field')),
+        h('section',{className:'mc-marker-screen','aria-label':'Marker preview',ref:setTarget})),
+        h('aside',{className:'mc-marker-inspector','aria-label':'Highlight inspector'},
+          h('div',{className:'mc-panel-heading'},h('h2',null,active?'Highlight inspector':'Capture controls')),
+          h(TrimPreview,{key:sceneId,initialPosition:review?.positions?.[sceneId],clip,onChange:change,onCapture:active?null:capture,onBeforePlay:()=>{},controls,busy,target,frameCache:cache,captureWhilePlaying:true}),
+          active&&h('section',{className:'mc-draft-refine'},h(MarkerFields,{tags,value,onChange:metadata,disabled:busy}),
             h('div',{className:'mc-inline'},button('Keep draft',saveEdits,busy||!dirty),button(current?.expected?'Save as new':'Save to Stash',()=>publish([active]),busy||!value.primary,{className:'mc-primary'}),current?.expected&&button('Update original',()=>publish([active],'update'),busy||!value.primary))),
+          !active&&h('p',{className:'mc-muted'},'I starts a highlight; O saves it. Select a highlight to edit its range, title and tags.')),
+        h('aside',{className:'mc-marker-metadata','aria-label':'Highlights'},
           h('div',{className:'mc-panel-heading'},h('h2',null,'Highlights · '+drafts.length),h('small',null,savingCount?'Saving…':drafts.some(d=>d._unsaved)?'Unsaved drafts':'Drafts saved')),
           !active&&h('p',{className:'mc-muted'},'Watch and capture now. Select a highlight to refine it later. Tags are only required when publishing markers.'),
           drafts.length>0&&h('div',{className:'mc-draft-batch'},h('div',{className:'mc-inline'},button(selected.length===drafts.length?'Deselect all':'Select all',()=>setSelected(selected.length===drafts.length?[]:drafts.map(d=>d.id)),busy||savingCount>0),h('small',null,selected.length+' selected')),
@@ -906,8 +909,8 @@
         if(inspectorOpen&&clip&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
           if(e.target instanceof Element&&(e.target.closest('input:not([type="range"]),textarea,select,[role="textbox"]')||e.target.isContentEditable))return;
           e.preventDefault();e.stopImmediatePropagation();
-          if(e.key==='ArrowLeft'||e.key==='ArrowRight')trimControls.current?.frame(e.key==='ArrowLeft'?-1:1);
-          else trimControls.current?.second(e.key==='ArrowUp'?-1:1);
+          if(e.key==='ArrowLeft'||e.key==='ArrowRight')trimControls.current?.second(e.key==='ArrowLeft'?-1:1);
+          else trimControls.current?.frame(e.key==='ArrowUp'?1:-1);
           return;
         }
         if(e.code!=='Space'&&e.key!==' ')return;

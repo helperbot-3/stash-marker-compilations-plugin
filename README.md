@@ -88,9 +88,9 @@ folder. No separate service, npm installation, or frontend build is needed to ru
    **Delete / Backspace** removes the selected clip. Clipboard shortcuts also work
    between compilation editors; ordinary text editing and other pasted text are untouched.
 5. **Space** plays or pauses the inspected source preview while the inspector is open,
-   and the compilation timeline otherwise. In the inspector, **Left / Right** step
-   exactly one source frame (regardless of the step dropdown); **Up / Down** seek
-   backward / forward one second. Seeking pauses the preview and leaves trim boundaries
+   and the compilation timeline otherwise. In the inspector, **Left / Right** seek
+   backward / forward one second; **Up / Down** step forward / backward exactly
+   one source frame (regardless of the step dropdown). Seeking pauses the preview and leaves trim boundaries
    unchanged. Arrow keys keep their normal behavior in editable fields and dropdowns.
    Space leaves text
    typing fields and dialogs alone. Focused buttons, dropdowns, numeric controls,
@@ -238,7 +238,7 @@ choose a scene first.
    select highlights, choose a tag and **Apply tag**, then **Save selected to Stash**.
    Published drafts become ordinary Stash scene markers and leave the draft list.
 
-- **Space** plays/pauses. Arrows step frames (left/right) or seconds (up/down).
+- **Space** plays/pauses. Left/right move −/+1 second; up/down move +/−1 frame.
   Navigation preserves playback state. **Escape** leaves text fields and dropdowns
   to return to video shortcuts. In Capture, Enter also finishes a highlight.
 - Drafts persist in the plugin's SQLite database, including untagged ranges and hot
@@ -309,3 +309,9 @@ validate every UI GraphQL operation against the real schema. `node tests/browser
 exercises both playback modes, repeat/speed patterns, persistence, mobile layout and the actual Stash UI using Chrome and seeded test markers named `Long interval`
 and `Closing clip`. It writes test compilations and cached media: never point it at a
 production instance.
+
+The scene highlight workspace places the viewer, highlights list, and inspector in
+separate columns. Select a highlight to edit its in/out times, title, tags and hot
+zones in the inspector. The source-format selector is under **Playback source**.
+Both the compilation inspector and scene highlights use Left/Right for −/+1 second
+and Up/Down for +/−1 frame. Space returns keyboard focus to the viewer workspace.

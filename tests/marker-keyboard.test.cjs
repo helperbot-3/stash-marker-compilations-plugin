@@ -20,13 +20,13 @@ test('marker shortcuts work on non-editable controls and suppress their native k
     const down=ui.event(key);ui.key(down);assert.ok(down.prevented&&down.stopped);
     const up=ui.event(key);ui.release(up);assert.ok(up.prevented&&up.stopped);
   }
-  assert.deepEqual(ui.calls,[['frame',-1],['frame',1],['second',-1],['second',1],['mark','start'],['mark','end'],'toggle','save']);
+  assert.deepEqual(ui.calls,[['second',-1],['second',1],['frame',1],['frame',-1],['mark','start'],['mark','end'],'focus','toggle','save']);
 });
 test('holding Space or Enter acts once, while held navigation continues stepping',()=>{
   const ui=setup();
   for(const key of [' ','Enter','i','o']){ui.key(ui.event(key));ui.key(ui.event(key,false,{repeat:true}));}
   ui.key(ui.event('ArrowRight',false,{repeat:true}));
-  assert.deepEqual(ui.calls,['toggle','save',['mark','start'],['mark','end'],['frame',1]]);
+  assert.deepEqual(ui.calls,['focus','toggle','focus','save',['mark','start'],['mark','end'],['second',1]]);
 });
 test('typing, dropdown navigation, composition and modified shortcuts stay native; Escape returns focus',()=>{
   const ui=setup();
@@ -65,4 +65,16 @@ test('marking after queued frame navigation uses the destination rather than the
   releaseStep();await move;await mark;
   assert.deepEqual(marks,[['end',6]]);
   assert.equal(queuedNavigation.current,0);
+});
+
+test('capture marks survive playback generation changes while navigation is cancelled',async()=>{
+  const marks=[],navigationGeneration={current:0},inputQueue={current:Promise.resolve()};
+  const queue=source.slice(source.indexOf('    function enqueueStep('),source.indexOf('    function stepSecond('));
+  const enqueue=vm.runInNewContext(queue+';enqueueStep',{navigationGeneration,inputQueue,setFrameError:assert.fail});
+  const first=enqueue(()=>marks.push('in'),false);
+  const stale=enqueue(()=>marks.push('stale seek'));
+  navigationGeneration.current++;
+  const last=enqueue(()=>marks.push('out'),false);
+  await Promise.all([first,stale,last]);
+  assert.deepEqual(marks,['in','out']);
 });
