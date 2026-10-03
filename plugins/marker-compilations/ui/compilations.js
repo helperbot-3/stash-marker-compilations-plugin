@@ -397,7 +397,7 @@
     const phases=patterns.phases(clip);
     return h('aside',{className:'mc-inspector','aria-label':'Clip settings'},
       h('div',{className:'mc-panel-heading'},h('h2',null,clip.title),h(Link,{to:'/scenes/'+clip.scene_id,title:'Open source scene'},'Source ↗'),button('×',onClose,false,{'aria-label':'Close clip inspector',title:'Back to timeline (Escape)'})),
-      h('div',{className:'mc-marker-save-actions'},clip.marker_id&&button('Update original marker',()=>onSaveMarker('update'),busy),button('Save as new marker',()=>onSaveMarker('new'),busy),h(Link,{to:'/marker-creation?scene='+clip.scene_id},'Marker creation mode ↗')),
+      h('div',{className:'mc-marker-save-actions'},clip.marker_id&&button('Update original marker',()=>onSaveMarker('update'),busy,{className:'mc-primary'}),button('Save as new marker',()=>onSaveMarker('new'),busy),h(Link,{to:'/marker-creation?scene='+clip.scene_id},'Marker creation mode ↗')),
       h('div',{className:'mc-inspector-columns'},
         h(TrimPreview,{clip,onChange,onBeforePlay,controls:trimControls,busy,target:trimTarget,frameCache}),
         h('section',{className:'mc-pattern','aria-label':'Repeat and speed'},h('div',{className:'mc-sequence-heading'},h('h3',null,'Sequence'),
@@ -771,6 +771,7 @@
     const [seekRequest,setSeekRequest]=useState({position:0,serial:0,play:true});
     const dropMediaRef=useRef(null), request=useRef(0), monitor=useRef(null), serial=useRef(0), playerControls=useRef(null), trimControls=useRef(null);
     const clip=selected==null?null:doc.clips[selected], entries=patterns.timeline(doc.clips);
+    const selectedClipRef=useRef(clip);selectedClipRef.current=clip;
     const total=entries.length?entries[entries.length-1].end:0;
     const media=patterns.catalog(doc), trimActive=view==='editor'&&inspectorOpen&&preview==='trim'&&!!clip;
     const progress=useCallback(position=>setCurrent(position),[]), activate=useCallback(index=>setActive(index),[]);
@@ -872,7 +873,16 @@
     function changeClip(patch){
       const updated={...clip,...patch};
       if(!patterns.validHotZone(updated)){setMessage('Hot zones must not overlap and must stay inside the clip range, with start before end.');return false;}
-      edit({clips:doc.clips.map((c,i)=>i===selected?updated:c)});return true;
+      selectedClipRef.current=updated;edit({clips:doc.clips.map((c,i)=>i===selected?updated:c)});return true;
+    }
+    async function updateOriginalMarker(){
+      await trimControls.current?.flush();
+      const currentClip=selectedClipRef.current;
+      if(!currentClip?.marker_id)throw Error('This clip has no original marker. Use Save as new marker.');
+      const {marker}=await op({action:'marker_context',scene_id:currentClip.scene_id,marker_id:currentClip.marker_id});
+      const result=await op({action:'save_marker',mode:'update',clip:currentClip,title:currentClip.title||marker.title,
+        primary_tag_id:marker.primary_tag.id,tag_ids:marker.tags.map(t=>t.id),expected:marker});
+      setMessage('Updated original marker: '+result.marker.title+'. Range and hot zones saved to Stash.');
     }
     function removeClip(){
       setTrimSession(n=>n+1);
@@ -1008,7 +1018,7 @@
               h('div',{className:'mc-transport'},button('Play from start',()=>perform(()=>play(0)),busy||!doc.clips.length),h('span',{className:'mc-pass'},'Space to play / pause')))),
           view==='viewer'&&h('div',{className:'mc-monitor-footer'},h('output',{'aria-label':'Preview time'},time(current)+' / '+time(renderedVideo?.duration||total)),h('span',null,renderedVideo?'Playing rendered video':mode==='source'?'Playing from original scenes':'Playing prepared clips'))),
         view==='editor'&&inspectorOpen&&clip&&h('div',{className:'mc-edit-sidebar'},
-          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,customPatterns,onManagePatterns:()=>perform(managePatterns),onPlaySequence:()=>perform(()=>play(0,selected)),onSaveMarker:mode=>setModal('marker-'+mode),trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.applySequence(patterns.portableSequence(clip),c),hot_zones:patterns.identifiedZones(c)}))})}))),
+          h(Inspector,{key:trimSession+':'+String(selected)+':'+(clip?.scene_id||''),onBeforePlay:showTrim,onClose:closeInspector,frameCache,customPatterns,onManagePatterns:()=>perform(managePatterns),onPlaySequence:()=>perform(()=>play(0,selected)),onSaveMarker:mode=>mode==='update'?perform(updateOriginalMarker):setModal('marker-new'),trimControls,trimTarget,clip,busy,onChange:changeClip,onApplyAll:()=>edit({clips:doc.clips.map(c=>({...c,phases:patterns.applySequence(patterns.portableSequence(clip),c),hot_zones:patterns.identifiedZones(c)}))})}))),
       view==='editor'?h(Timeline,{clips:doc.clips,selected,active,current,busy,onSelect:selectClip,onInspect:inspectClip,onSeek:seek,onMove:move,onRemove:removeClip,onPlay:()=>perform(()=>play(entries[selected].start)),onCache:()=>setModal('cache'),job,onInsertMedia:insertMedia,dropMediaRef}):!renderedVideo&&h('label',{className:'mc-viewer-seek'},'Position',h('input',{'aria-label':'Viewer position',type:'range',min:0,max:total||1,step:.05,value:Math.min(current,total),disabled:busy||!total,onChange:e=>seek(Number(e.target.value))}),h('output',null,time(current)+' / '+time(total))),
       view==='viewer'&&h('footer',{className:'mc-editor-footer'},h('span',null,view==='editor'?'Select a clip to trim or change its pattern.':'Choose a saved compilation and press Space to play.'),button('Prepare clips'+(job?' · generating…':''),()=>setModal('cache'),busy)),
       modal==='unsaved'&&dialog('Unsaved changes',h(React.Fragment,null,h('p',null,'Save your edits before returning to compilations?'),message&&h('p',{role:'alert'},message)),h('div',{className:'mc-inline'},button('Keep editing',()=>setModal(null),busy),button('Discard edits',()=>{choose(documents.find(d=>d.id===doc.id)||blank(),true);setModal(null);setView('viewer');},busy),button('Save and return',()=>perform(async()=>{await save();stop();setModal(null);setView('viewer');}),busy,{className:'mc-primary'}))),
@@ -1024,7 +1034,7 @@
           h('img',{src:m.screenshot,alt:'',loading:'lazy'}),h('div',null,h('strong',null,m.title||m.primary_tag.name),h('p',null,m.scene.title||'Scene '+m.scene.id),h('small',null,time(m.seconds)+' → '+(m.end_seconds>m.seconds?time(m.end_seconds):'default duration'))),button(media.some(c=>String(c.marker_id)===String(m.id))?'✓ In project':'+ Add',()=>perform(()=>add(m)),busy||media.some(c=>String(c.marker_id)===String(m.id)),{'aria-label':(media.some(c=>String(c.marker_id)===String(m.id))?'In project: ':'Add ')+(m.title||m.primary_tag.name)})))),
         h('div',{className:'mc-pagination'},button('Previous page',()=>setPage(page-1),page===1||loading),h('span',null,'Page '+page),button('Next page',()=>setPage(page+1),page*24>=count||loading))),
         h(React.Fragment,null,h('span',{role:'status'},media.length+' markers in project'),button('Done',()=>setModal(null),false,{className:'mc-primary'})),'xl'),
-      (modal==='marker-update'||modal==='marker-new')&&clip&&dialog(modal==='marker-update'?'Update original marker':'Save as new marker',h(MarkerSaveForm,{clip,mode:modal==='marker-update'?'update':'new',onSaved:marker=>{setModal(null);setMessage('Saved marker: '+marker.title+'. Existing compilation clips are unchanged.');}}),button('Close',()=>setModal(null),false)),
+      modal==='marker-new'&&clip&&dialog('Save as new marker',h(MarkerSaveForm,{clip,mode:'new',onSaved:marker=>{setModal(null);setMessage('Saved marker: '+marker.title+'. Existing compilation clips are unchanged.');}}),button('Close',()=>setModal(null),false)),
       modal==='patterns'&&dialog('Repetition patterns',h(PatternManager,{initial:clip?patterns.portableSequence(clip):patterns.presets.once,zoneCount:clip?patterns.hotZones(clip).length:0,items:customPatterns,onSave:savePattern,onDelete:deletePattern}),button('Done',()=>setModal(null),false)),
       modal==='render'&&dialog('Render compilation video',h(React.Fragment,null,
         h('div',{className:'mc-render-options'},
