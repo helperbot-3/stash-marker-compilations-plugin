@@ -759,11 +759,48 @@ def publish_marker_draft(store, stash, args):
         raise
 
 
+def reuse_screening_marker(store, stash, args):
+    import screening
+    project = screening.read(store, args['id'])
+    scene_id = str(args['scene_id'])
+    if scene_id not in project['scene_ids']:
+        raise ValueError('Scene is not in this review project')
+    context = marker_context(store, stash, scene_id, args['marker_id'])
+    marker = context['marker']
+    if not any(screening.has_marker({'scene_markers': [marker]}, t) for t in project['targets']):
+        raise ValueError('This marker no longer matches a project target. Refresh the scene.')
+    if project.get('project_id'):
+        if marker.get('end_seconds') is None or marker['end_seconds'] <= marker['seconds']:
+            raise ValueError('Set an end time before adding this marker to the compilation.')
+        doc = store.get(project['project_id'])
+        item = {'scene_id': scene_id, 'marker_id': str(marker['id']), 'title': marker['title'],
+                'start': marker['seconds'], 'end': marker['end_seconds'], 'hot_zones': context['hot_zones'],
+                'phases': [{'repeat': 1, 'speed': 1}]}
+        changed = False
+        if not any(media_key(m) == media_key(item) for m in doc['media']):
+            doc['media'].append(item); changed = True
+        if not any(c.get('marker_id') == item['marker_id'] for c in doc['clips']):
+            doc['clips'].append(dict(item)); changed = True
+        if changed:
+            store.save(doc)
+    # Read again so playback-position updates are not overwritten.
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        project = screening.read(store, args['id'])
+        ids = project.setdefault('reused_marker_ids', [])
+        if str(marker['id']) not in ids:
+            ids.append(str(marker['id']))
+        screening.write(store, project)
+    return {'marker_id': str(marker['id']), 'added_to_compilation': bool(project.get('project_id'))}
+
+
 def run(payload):
     conn, args = payload['server_connection'], payload.get('args', {})
     store = Store(Path(conn['Dir']) / 'marker-compilations')
     cache = Path(conn['PluginDir']) / 'cache'
     action = args.get('action')
+    if action == 'screening_reuse_marker':
+        return reuse_screening_marker(store, Stash(conn), args)
     if action and action.startswith('screening_'):
         import screening
         return screening.run(store, Stash(conn), args, publish_marker_draft)

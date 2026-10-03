@@ -220,3 +220,6 @@
 .mc-marker-workspace .mc-saved-marker{grid-template-columns:minmax(0,1fr)}.mc-marker-workspace .mc-pending-marker{grid-template-columns:minmax(0,1fr) auto auto}.mc-marker-workspace .mc-marker-guide strong{font-size:11px}
 
 .mc-marker-edit-actions{display:flex;gap:6px;flex-wrap:wrap;position:sticky;top:-10px;z-index:3;background:var(--mc-panel);padding:6px 0}.mc-marker-workspace .mc-marker-edit-actions button{font-size:11px;padding:5px 8px}
+
+.mc-existing-actions { display:flex; flex-wrap:wrap; gap:.35rem; padding:.4rem; }
+.mc-existing-actions small { flex-basis:100%; color:var(--mc-muted, #adb5bd); }

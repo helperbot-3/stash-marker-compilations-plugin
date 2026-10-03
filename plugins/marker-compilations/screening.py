@@ -76,6 +76,7 @@ def snapshot(store, stash, project):
         rows.update({str(scene['id']): scene for scene in found})
     drafts = [json.loads(r[0]) for r in store.db.execute('SELECT document FROM marker_drafts')]
     tracked = [{**t, '_published_ids': {str(d['published']['marker']['id']) for d in drafts if d.get('published') and d.get('review_id') == project['id'] and matches_draft(d, t)}} for t in project['targets']]
+    created_ids = [str(d['published']['marker']['id']) for d in drafts if d.get('published') and d.get('review_id') == project['id'] and not d.get('expected')]
     drafts = [d for d in drafts if not d.get('published')]
     scenes = []
     for id_ in ids:
@@ -86,6 +87,7 @@ def snapshot(store, stash, project):
     missing_tags = [t[key] for t in project['targets'] for key in ('marker_tag_id', 'screened_tag_id', 'absent_tag_id') if t[key] not in tags]
     missing_tags.extend(id_ for t in project['targets'] for id_ in t.get('tag_ids', []) if id_ not in tags)
     return {**project, 'scenes': scenes, 'missing_tags': missing_tags,
+            'created_marker_ids': created_ids,
             'targets': [{**t, 'name': tags.get(t['marker_tag_id'], t['name']), 'screened_name': tags.get(t['screened_tag_id'], t['screened_name']), 'absent_name': tags.get(t['absent_tag_id'], t['absent_name'])} for t in project['targets']]}
 
 

@@ -195,7 +195,11 @@
       return copyClip(c);
     }catch{return null;}
   }
-  const api={uniqueId,seekQueue,presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
+  function markerMatchesTarget(marker,target){
+    const tags=new Set([marker.primary_tag?.id,...(marker.tags||[]).map(t=>t.id)].map(String));
+    return (!target.title||marker.title===target.title)&&[target.marker_tag_id,...(target.tag_ids||[])].every(id=>tags.has(String(id)));
+  }
+  const api={markerMatchesTarget,uniqueId,seekQueue,presets,presetLabels,mediaKey,catalog,insertClip,frameRate,frameTime,parseFrameTime,frameIndex,frameStep,phases,sequence,identifiedZones,stepRanges,missingRanges,portableSequence,applySequence,adjustedRange,hotZones,newHotZone,repetitionRange,validRanges,validHotZone,phaseDurations,duration,timeline,expand,locate,reorder,formatTime,parseTime,encodeClip,decodeClip};
   if(typeof module==='object'&&module.exports)module.exports=api;
   else root.MarkerCompilationPatterns=api;
 })(typeof window==='undefined'?globalThis:window);

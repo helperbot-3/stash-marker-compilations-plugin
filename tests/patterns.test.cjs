@@ -238,3 +238,12 @@ test('a seek completes even when playback advances before seeked fires',()=>{
   queue.request(queue.position()+1);displayed=12.08;
   assert.equal(queue.settled(),true);assert.equal(writes.length,2);
 });
+
+test('project marker matching requires the target title and all tags, regardless of primary order',()=>{
+  const {markerMatchesTarget}=require('../plugins/marker-compilations/ui/patterns.js');
+  const marker={title:'Age question',primary_tag:{id:'2'},tags:[{id:'1'},{id:'3'}]};
+  assert.equal(markerMatchesTarget(marker,{title:'Age question',marker_tag_id:'1',tag_ids:['2']}),true);
+  assert.equal(markerMatchesTarget(marker,{title:'Different question',marker_tag_id:'1'}),false);
+  assert.equal(markerMatchesTarget(marker,{marker_tag_id:'1',tag_ids:['4']}),false);
+  assert.equal(markerMatchesTarget(marker,{marker_tag_id:'1'}),true);
+});

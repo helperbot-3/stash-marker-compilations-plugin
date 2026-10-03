@@ -328,3 +328,12 @@ separate columns. Select a highlight to edit its in/out times, title, tags and h
 zones in the inspector. The source-format selector is under **Playback source**.
 Both the compilation inspector and scene highlights use Left/Right for −/+1 second
 and Up/Down for the selected frame step (five by default). Space returns keyboard focus to the viewer workspace.
+
+Screening lists show markers created in the current project and existing markers
+matching any target's title and required tags. **All scene markers** reveals the
+rest. Existing markers can be reused in the linked compilation without duplication,
+edited as shared Stash markers, or copied into separate markers. Reuse does not mark
+the scene reviewed. **Mark target reviewed** records completion for the selected
+target on this scene and advances to the next pending target or scene; **None found**
+records absence. Older markers without creation receipts are classified by matching
+the project's targets rather than guessed to have been created in a project.

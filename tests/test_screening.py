@@ -1,4 +1,5 @@
 import copy
+import sys
 import importlib.util
 import tempfile
 from pathlib import Path
@@ -8,6 +9,7 @@ from test_markers import FakeStash
 
 spec=importlib.util.spec_from_file_location('screening',Path(__file__).parents[1]/'plugins/marker-compilations/screening.py')
 screening=importlib.util.module_from_spec(spec);spec.loader.exec_module(screening)
+sys.modules['screening']=screening
 
 
 class Library(FakeStash):
@@ -57,6 +59,34 @@ class ScreeningTests(unittest.TestCase):
         return screening.result(self.store,self.stash,{'id':p['id'],'scene_id':scene,'target':target,'result':state},publish)['project']
     def draft(self,p,start=1):
         return b.save_marker_draft(self.store,{'clip':{'scene_id':'1','start':start,'end':start+1},'primary':'1','review_id':p['id']})
+
+    def test_origin_and_reuse_are_independent_of_review_completion(self):
+        first=self.create();second=self.create()
+        draft=self.draft(first)
+        saved=b.publish_marker_draft(self.store,self.stash,{'id':draft['id'],'revision':draft['revision'],'mode':'new','title':'Interview'})
+        marker_id=saved['marker']['id']
+        first=screening.snapshot(self.store,self.stash,first)
+        second=screening.snapshot(self.store,self.stash,second)
+        self.assertEqual(first['created_marker_ids'],[marker_id])
+        self.assertEqual(second['created_marker_ids'],[])
+        self.assertTrue(second['scenes'][0]['statuses']['1']['has_markers'])
+        self.assertEqual(second['scenes'][0]['statuses']['1']['state'],'pending')
+        comp=self.store.save(dict(document(),clips=[],media=[]))
+        second['project_id']=comp['id']
+        with self.store.db:screening.write(self.store,second)
+        args={'id':second['id'],'scene_id':'1','marker_id':marker_id}
+        for _ in range(2):b.reuse_screening_marker(self.store,self.stash,args)
+        self.assertEqual(len(self.stash.markers),1)
+        comp=self.store.get(comp['id'])
+        self.assertEqual(len(comp['clips']),1)
+        self.assertEqual(len(comp['media']),1)
+        second=screening.snapshot(self.store,self.stash,screening.read(self.store,second['id']))
+        self.assertEqual(second['reused_marker_ids'],[marker_id])
+        self.assertEqual(second['created_marker_ids'],[])
+        self.assertEqual(second['scenes'][0]['statuses']['1']['state'],'pending')
+        self.assertEqual(self.stash.deltas,[])
+        with self.assertRaisesRegex(ValueError,'not in this review'):
+            b.reuse_screening_marker(self.store,self.stash,dict(args,scene_id='999'))
 
     def test_custom_status_tags_reuse_and_queue_filters(self):
         self.stash.tags.append({'id':'4','name':'Reviewed interviews'})
@@ -110,7 +140,7 @@ class ScreeningTests(unittest.TestCase):
         self.assertEqual(reopened['scenes'][0]['statuses']['1']['state'],'pending')
 
     def test_partial_publication_does_not_mark_done_or_duplicate_on_retry(self):
-        destination=self.store.save(document(clips=[]));p=self.create(project_id=destination['id']);self.draft(p);self.draft(p,3)
+        destination=self.store.save(dict(document(),clips=[],media=[]));p=self.create(project_id=destination['id']);self.draft(p);self.draft(p,3)
         attempts=[]
         def fail_second(store,stash,args):
             attempts.append(args['id'])
