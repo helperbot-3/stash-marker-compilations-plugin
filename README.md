@@ -160,7 +160,9 @@ sequences or zones does not require generating clips again.
 
 Open **Compilations → Screen scenes** and create a review project:
 
-1. Name the review and choose up to 12 existing marker tags to look for.
+1. Name the review and define up to 12 targets. Each has a default marker title,
+   one primary tag and optional additional tags. Search for existing tags or create
+   new ones inline. Targets may share a primary tag when their titles differ.
 2. For each target, optionally customize the **Screened** and **Absent** scene tag
    names. Existing tags with those names are reused; missing tags are created.
 3. Filter the scene library by search, required scene tags, and studio. By default,
@@ -169,13 +171,13 @@ Open **Compilations → Screen scenes** and create a review project:
    the review project's name. The queue is a snapshot of matching scenes.
 
 In the player, choose the active target and capture highlights with **I / O**.
-Each captured draft inherits that target's marker tag. Refine it before finishing,
+Each captured draft inherits that target's title, primary tag and additional tags. Refine it before finishing,
 or choose **Save highlights & done** to publish that target's captured drafts and
 mark the scene screened. Published markers go into the destination's project media;
 you can arrange them on the compilation timeline afterward.
 
 - **None found** adds the screened and absent tags. It refuses to contradict
-  existing markers or drafts with that target tag.
+  existing markers matching the target title and tags, or drafts captured for that target.
 - **Done** adds the screened tag and removes an obsolete absent tag. A marker must
   exist, or be successfully published from this review, before Done is recorded.
 - Completing a target selects the next pending target in the current scene. Once
@@ -190,13 +192,19 @@ you can arrange them on the compilation timeline afterward.
 
 ### Portable screening results
 
-For the marker tag `Interview`, the default scene tags mean:
+For project `Interviews` and target title `Asking age`, the default scene tags mean:
 
 | Scene tags | Interpretation |
 | --- | --- |
 | Neither tag | Not yet fully screened |
-| `Screened: Interview` | Screening completed |
-| `Screened: Interview` + `Absent: Interview` | Screening completed; none found |
+| `Screened: Interviews / Asking age` | Screening completed |
+| `Screened: Interviews / Asking age` + `Absent: Interviews / Asking age` | Screening completed; none found |
+
+New projects have independent status tags, even if their project names match
+(a numeric suffix distinguishes repeated names). Custom status tag names can
+intentionally share progress. Existing projects keep their original mappings and
+progress; no old scene tags are rewritten. If the title is empty, the primary tag
+name supplies the default title and status tag suffix.
 
 These are ordinary Stash tags, visible and searchable without this plugin. Merely
 having a marker does not mark a scene fully screened. Each target is independent.

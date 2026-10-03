@@ -124,7 +124,7 @@ class ScreeningTests(unittest.TestCase):
 
     def test_already_screened_scenes_are_excluded_and_deleted_scenes_are_skippable(self):
         p=self.create(targets=[{'marker_tag_id':'1'}]);self.result(p,'1','absent')
-        second=self.create(targets=[{'marker_tag_id':'1'}])
+        second=self.create(targets=[{'marker_tag_id':'1','screened_name':p['targets'][0]['screened_name'],'absent_name':p['targets'][0]['absent_name']}])
         self.assertEqual(second['scene_ids'],['2','3'])
         del self.stash.scenes['2']
         next_=screening.navigate(self.store,self.stash,{'id':second['id'],'move':'next'})
@@ -138,3 +138,40 @@ class ScreeningTests(unittest.TestCase):
         p=self.create(new_compilation=True)
         self.assertEqual(self.store.get(p['project_id'])['name'],p['name'])
         self.assertEqual(self.store.get(p['project_id'])['clips'],[])
+
+    def test_project_status_is_independent_even_with_duplicate_project_names(self):
+        p=self.create(targets=[{'marker_tag_id':'1'}]);self.result(p,'1','absent')
+        for name in ('Another project',p['name']):
+            other=self.create(name=name,targets=[{'marker_tag_id':'1'}])
+            self.assertEqual(other['scene_ids'],['1','2','3'])
+            self.assertNotEqual(other['targets'][0]['screened_tag_id'],p['targets'][0]['screened_tag_id'])
+        self.assertEqual(screening.read(self.store,p['id'])['targets'],p['targets'])
+
+    def test_multiple_targets_share_primary_tag_and_keep_marker_defaults(self):
+        p=self.create(targets=[{'id':'age','marker_tag_id':'1','title':'Asking age','tag_ids':['2']},
+                               {'id':'intro','marker_tag_id':'1','title':'Introduction','tag_ids':[]}])
+        self.assertEqual(p['active_target'],'age')
+        target=p['targets'][0]
+        self.assertEqual(target['title'],'Asking age');self.assertEqual(target['tag_ids'],['2'])
+        self.assertIn(p['name']+' / Asking age',target['screened_name'])
+        draft=b.save_marker_draft(self.store,{'clip':{'scene_id':'1','start':1,'end':2},'title':'Age: refined title','primary':'1','tag_ids':['2'],'review_id':p['id'],'review_target_id':'age'})
+        self.assertEqual(draft['review_target_id'],'age')
+        p=self.result(p,'age','done')
+        marker=self.stash.markers[0]
+        self.assertEqual(marker['title'],'Age: refined title')
+        self.assertIn('2',[t['id'] for t in marker['tags']])
+        p=self.result(p,'intro','absent')
+        self.assertEqual(p['scenes'][0]['statuses']['intro']['state'],'absent')
+        with self.assertRaisesRegex(ValueError,'markers or drafts'):self.result(p,'age','absent')
+        p=self.result(p,'age','pending');p=self.result(p,'age','done')
+        self.assertEqual(len(self.stash.markers),1)
+
+    def test_legacy_projects_keep_their_tag_mapping_and_primary_tag_identity(self):
+        p=self.create();legacy=screening.read(self.store,p['id'])
+        for target in legacy['targets']:
+            for key in ('id','title','tag_ids'):target.pop(key,None)
+        legacy.pop('status_scope',None)
+        screening.write(self.store,legacy);self.store.db.commit()
+        self.draft(legacy);updated=self.result(legacy,'1','done')
+        self.assertEqual(updated['targets'],legacy['targets'])
+        self.assertEqual(updated['scenes'][0]['statuses']['1']['state'],'done')

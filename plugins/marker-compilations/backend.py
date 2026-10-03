@@ -695,7 +695,7 @@ def save_marker_draft(store, draft):
             raise ValueError('A draft cannot change scenes')
         result = {'id': id_, 'revision': revision + 1, 'clip': clip,
                   'title': str(draft.get('title', ''))[:300], 'primary': primary,
-                  'tag_ids': sorted(set(str(t) for t in tags)), 'expected': draft.get('expected'), 'review_id': str(draft.get('review_id') or '')}
+                  'tag_ids': sorted(set(str(t) for t in tags)), 'expected': draft.get('expected'), 'review_id': str(draft.get('review_id') or ''), 'review_target_id': str(draft.get('review_target_id') or '')}
         store.db.execute('INSERT OR REPLACE INTO marker_drafts VALUES (?,?,?,?)',
                          (id_, clip['scene_id'], result['revision'], json.dumps(result)))
     return result
