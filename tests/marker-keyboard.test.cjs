@@ -104,3 +104,21 @@ test('first capture works without frame data and marker saving does not block na
   assert.deepEqual(captures,[['start',2],['end',3],['start',4]]);
   saved();await captureTasks.current;
 });
+
+test('one-second jumps bypass slow frame lookups and late frame results cannot undo them',async()=>{
+  let position=10,releaseFrames;const pending=new Promise(resolve=>releaseFrames=resolve),writes=[];
+  const methods=source.slice(source.indexOf('    async function stepFrames('),source.indexOf('    function loaded('));
+  const controller=source.slice(source.indexOf('    useEffect(()=>{controls.current={',source.indexOf('  function TrimPreview(')),source.indexOf("    return h('section',{className:'mc-trimmer'"));
+  const controls={current:null};
+  vm.runInNewContext(methods+controller,{
+    controls,queuedNavigation:{current:0},inputQueue:{current:Promise.resolve()},navigationGeneration:{current:0},
+    useEffect:fn=>fn(),video:{current:{currentTime:10}},ready:true,busy:false,step:5,captureWhilePlaying:true,limit:{current:null},duration:30,
+    onBeforePlay(){},navigation:{current:{position:()=>position,request:value=>{position=value;writes.push(value);}}},
+    frameData:{current:null},patterns:{frameStep:data=>data?10.2:null},loadFrames:()=>pending,setFrameError:assert.fail
+  });
+  const frame=controls.current.frame(1);await Promise.resolve();
+  controls.current.second(-1);assert.equal(position,9,'jump happens before the frame lookup resolves');
+  controls.current.second(-1);assert.equal(position,8,'repeated jumps accumulate immediately');
+  releaseFrames({times:[10,10.2]});await frame;
+  assert.deepEqual(writes,[9,8],'stale frame lookup must not move playback back');
+});

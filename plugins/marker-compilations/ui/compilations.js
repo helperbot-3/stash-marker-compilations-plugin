@@ -253,7 +253,7 @@
       const generation=navigationGeneration.current;
       inputQueue.current=inputQueue.current.then(()=>!cancelOnNavigation||generation===navigationGeneration.current?action():null).catch(e=>setFrameError(e.message));return inputQueue.current;
     }
-    function stepSecond(direction){if(video.current&&ready&&!busy)seek(navigation.current.position()+direction);}
+    function stepSecond(direction){if(video.current&&ready&&!busy){navigationGeneration.current++;seek(navigation.current.position()+direction);}}
     function loaded(){
       navigation.current.reset();
       const v=video.current;
@@ -300,7 +300,7 @@
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
       frame:direction=>{queuedNavigation.current++;return enqueueStep(()=>stepFrames(direction)).finally(()=>queuedNavigation.current--);},
-      second:direction=>{queuedNavigation.current++;return enqueueStep(()=>stepSecond(direction)).finally(()=>queuedNavigation.current--);}
+      second:direction=>stepSecond(direction)
     };return()=>{controls.current=null;};});
     return h('section',{className:'mc-trimmer','aria-label':'Source trim'},
       h('div',{className:'mc-clip-trim'},
