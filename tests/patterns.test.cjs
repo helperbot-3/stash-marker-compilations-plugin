@@ -227,3 +227,14 @@ test('rapid trim inputs accumulate while the decoder finishes one seek',()=>{
   queue.request(displayed);assert.equal(writes.length,2,'same-frame request cannot stall');
   queue.reset();assert.equal(queue.position(),displayed);
 });
+
+test('a seek completes even when playback advances before seeked fires',()=>{
+  let displayed=10;const writes=[];
+  const queue=patterns.seekQueue(()=>displayed,value=>writes.push(value),()=>{});
+  queue.request(11);displayed=11.04;
+  assert.equal(queue.settled(),true);
+  assert.deepEqual(writes,[11],'do not continually rewind to the completed seek');
+  assert.equal(queue.position(),11.04);
+  queue.request(queue.position()+1);displayed=12.08;
+  assert.equal(queue.settled(),true);assert.equal(writes.length,2);
+});

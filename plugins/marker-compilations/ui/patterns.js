@@ -166,17 +166,17 @@
   // Keep one decoder seek in flight. Rapid inputs accumulate against the intended
   // position and intermediate destinations are skipped once decoding completes.
   function seekQueue(read,write,changed){
-    let target=null,active=false;
+    let target=null,active=false,issued=null;
     function pump(){
       if(active||target===null)return;
       if(Math.abs(read()-target)<.00002){target=null;return;}
-      active=true;write(target);
+      active=true;issued=target;write(target);
     }
     return {
       position:()=>target??read(),
       request:value=>{target=value;changed(value);pump();},
-      settled:()=>{active=false;pump();return target===null;},
-      reset:()=>{target=null;active=false;}
+      settled:()=>{active=false;if(target===issued)target=null;issued=null;pump();return target===null;},
+      reset:()=>{target=null;active=false;issued=null;}
     };
   }
   const clipboardType='stash-marker-compilation-clip';

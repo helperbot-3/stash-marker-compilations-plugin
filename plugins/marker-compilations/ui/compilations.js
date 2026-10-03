@@ -188,7 +188,7 @@
     function addZone(){const added=patterns.newHotZone(clip,position);if(!added)return;added.id=patterns.uniqueId();const next=zones.concat(added).sort((a,b)=>a.start-b.start);if(onChange({hot_zone:null,hot_zones:next})!==false)setZoneSelection(next.indexOf(added));}
 
     const [position,setPosition]=useState(clip.start);
-    const navigation=useRef(null), inputQueue=useRef(Promise.resolve()), navigationGeneration=useRef(0),queuedNavigation=useRef(0);
+    const navigation=useRef(null), inputQueue=useRef(Promise.resolve()), navigationGeneration=useRef(0),queuedNavigation=useRef(0),captureTasks=useRef(Promise.resolve());
     if(!navigation.current)navigation.current=patterns.seekQueue(()=>video.current?.currentTime||0,value=>{setSeeking(true);video.current.currentTime=value+.00001;},setPosition);
     useEffect(()=>()=>{navigationGeneration.current++;navigation.current.reset();},[]);
     const [fps,setFps]=useState(null), [frameBusy,setFrameBusy]=useState(false), [frameError,setFrameError]=useState('');
@@ -271,7 +271,7 @@
     },[target,stream]);
     function play(selection,zone=null){
       const v=video.current;if(!v||!ready)return;
-      navigationGeneration.current++;navigation.current.reset();
+      if(selection){navigationGeneration.current++;navigation.current.reset();}
       onBeforePlay();limit.current=selection?(zone?.end??end):null;
       if(selection){v.currentTime=zone?.start??start;setPosition(zone?.start??start);}
       v.play().catch(()=>setError('Playback could not start. Try another source stream.'));
@@ -279,6 +279,13 @@
     async function mark(which,captured=null){
       const v=video.current;if(!v||(captured===null&&v.seeking)||(frameBusy&&!captureWhilePlaying))return false;
       if(!captureWhilePlaying)v.pause();limit.current=null;const current=captured??v.currentTime;
+      if(onCapture&&!which.startsWith('hot_')){
+        // Record the keypress immediately; capture must not wait for frame probes or saving.
+        const point=patterns.frameStep(frameData.current,current,0)??current;
+        const task=Promise.resolve(onCapture(which,point)).catch(e=>setError('Marker capture failed: '+e.message));
+        captureTasks.current=Promise.all([captureTasks.current,task]);
+        return true;
+      }
       let data=frameData.current, point=patterns.frameStep(data,current,0);
       if(point===null){data=await loadFrames(current);if(!data)return false;point=patterns.frameStep(data,current,0);}
       if(point===null)return false;
@@ -288,7 +295,7 @@
     const valid=ready&&start>=0&&end>start&&end<=duration;
     useEffect(()=>{controls.current={
       position:()=>ready?navigation.current.position():null,
-      mark:which=>{const afterNavigation=queuedNavigation.current>0,captured=navigation.current.position();return enqueueStep(()=>mark(which,afterNavigation?navigation.current.position():captured),false);},flush:()=>inputQueue.current,seek:position=>seek(position),
+      mark:which=>{const afterNavigation=queuedNavigation.current>0,captured=navigation.current.position();return enqueueStep(()=>mark(which,afterNavigation?navigation.current.position():captured),false);},flush:async()=>{await inputQueue.current;await captureTasks.current;},seek:position=>seek(position),
       preview:p=>{const ranges=patterns.stepRanges(clip,p.target);if(ranges.length)seek(ranges[0].start);},
       pause:()=>video.current?.pause(),
       toggle:()=>{const v=video.current;if(!v||!ready||busy)return;if(v.paused)play(false);else v.pause();},
@@ -565,7 +572,7 @@
     const [projects,setProjects]=useState([]),[project,setProject]=useState(review?.project_id||'');
     const [drafts,setDrafts]=useState([]),draftsRef=useRef([]),[selected,setSelected]=useState([]),[active,setActive]=useState(null),activeRef=useRef(null);
     const [dirty,setDirty]=useState(false),dirtyRef=useRef(false),[batchTag,setBatchTag]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[target,setTarget]=useState(null),[captureStart,setCaptureStart]=useState(null),startRef=useRef(null);
-    const workspace=useRef(null),controls=useRef(null),cache=useRef([]),capturedKeys=useRef(new Set()),loading=useRef(false);
+    const workspace=useRef(null),controls=useRef(null),cache=useRef([]),capturedKeys=useRef(new Set()),loading=useRef(false),captureSaveQueue=useRef(Promise.resolve());
     function setCurrent(next){clipRef.current=next;setClip(next);}
     function markDirty(next){dirtyRef.current=next;setDirty(next);}
     function updateDrafts(change){const next=change(draftsRef.current);draftsRef.current=next;setDrafts(next);try{localStorage.setItem('mc-highlight-recovery-'+sceneId,JSON.stringify(next.filter(d=>d._unsaved)));}catch{setMessage('Browser recovery storage is unavailable. Keep this page open until your highlights are saved.');}}
@@ -604,7 +611,9 @@
       const start=startRef.current;if(start===null){setMessage(review?'Press I to start a marker first.':'Press I to start a highlight first.');return false;}if(point<=start){setMessage('The end must be after the start. Keep watching, then press O.');return false;}
       const draft={id:patterns.uniqueId(),revision:0,clip:{scene_id:sceneId,start,end:point,hot_zones:[]},title:reviewTarget?.title||reviewTarget?.name||'',primary:reviewTarget?.marker_tag_id||'',tag_ids:reviewTarget?.tag_ids||[],review_id:review?.id||'',review_target_id:reviewTarget?screeningTargetKey(reviewTarget):''};
       startRef.current=null;setCaptureStart(null);setCurrent(draft.clip);
-      try{const saved=await persist(draft);if(review)await saveCapturedMarker(saved);else setMessage('Highlight saved as a draft. Keep watching; tag it whenever you’re ready.');return true;}catch(e){if(review)setMessage('Marker not saved in Stash: '+e.message+' Use Retry in the marker list.');return false;}
+      updateDrafts(items=>[...items,{...draft,_unsaved:true,_saving:true}]);
+      const saving=captureSaveQueue.current.catch(()=>{}).then(async()=>{try{const saved=await persist(draft);if(review)await saveCapturedMarker(saved);else setMessage('Highlight saved as a draft. Keep watching; tag it whenever you’re ready.');return true;}catch(e){if(review)setMessage('Marker not saved in Stash: '+e.message+' Use Retry in the marker list.');return false;}});
+      captureSaveQueue.current=saving;return saving;
     }
     async function saveCapturedMarker(draft){
       if(draft._unsaved||!draft.revision)draft=await persist(draft);

@@ -88,3 +88,19 @@ test('keyboard frame navigation uses the selected frame step, including one-fram
     assert.deepEqual(calls,[[1,selected],[-1,selected]]);
   }
 });
+
+test('first capture works without frame data and marker saving does not block navigation',async()=>{
+  const methods=source.slice(source.indexOf('    async function mark(which,'),source.indexOf('    const valid=ready&&'));
+  const captures=[],captureTasks={current:Promise.resolve()};
+  let saved;const saving=new Promise(resolve=>saved=resolve);
+  const mark=vm.runInNewContext(methods+';mark',{
+    video:{current:{currentTime:2,seeking:false}},frameBusy:true,captureWhilePlaying:true,limit:{current:null},frameData:{current:null},captureTasks,
+    patterns:{frameStep:()=>null},loadFrames:()=>assert.fail('capture must not probe frames'),
+    onCapture:(which,point)=>{captures.push([which,point]);return which==='end'?saving:true;},setError:assert.fail
+  });
+  assert.equal(await mark('start',2),true);
+  assert.equal(await mark('end',3),true,'capture returns without waiting for saving');
+  assert.equal(await mark('start',4),true,'the next marker can start while the previous one saves');
+  assert.deepEqual(captures,[['start',2],['end',3],['start',4]]);
+  saved();await captureTasks.current;
+});
