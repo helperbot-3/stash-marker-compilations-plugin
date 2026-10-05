@@ -440,6 +440,18 @@
       button(mode==='update'?'Update original marker':'Save as new marker',save,busy||!value.primary||(mode==='update'&&!expected),{className:'mc-primary'}));
   }
 
+  function pollActiveExports(fetch,update,onError){
+    let disposed=false,timer;
+    async function poll(){
+      let active=true;
+      try{const items=await fetch();if(disposed)return;update(items);active=items.some(item=>['queued','rendering','importing'].includes(item.status));}
+      catch(error){if(disposed)return;onError(error);}
+      if(active&&!disposed)timer=setTimeout(poll,4000);
+    }
+    timer=setTimeout(poll,4000);
+    return()=>{disposed=true;clearTimeout(timer);};
+  }
+
   function restoreMarkerPlaybackFocus(workspace){
     const root=workspace.current,active=document.activeElement;
     if(root&&active instanceof Element&&root.contains(active)&&active.matches('video,input[type="range"],[role="slider"]'))root.focus({preventScroll:true});
@@ -782,7 +794,12 @@
     const progress=useCallback(position=>setCurrent(position),[]), activate=useCallback(index=>setActive(index),[]);
     async function op(args){const r=await client.mutate({mutation:OP,variables:{args}});return r.data.runPluginOperation;}
     async function refreshExports(id=doc.id){if(id)setExports(await op({action:'list_exports',id}));else setExports([]);}
-    useEffect(()=>{let disposed=false;async function poll(){try{const items=doc.id?await op({action:'list_exports',id:doc.id}):[];if(!disposed)setExports(items);}catch(e){if(!disposed&&modal==='render')setMessage(e.message);}}poll();const timer=setInterval(poll,4000);return()=>{disposed=true;clearInterval(timer);};},[doc.id,modal==='render']);
+    useEffect(()=>{let disposed=false;setExports([]);if(doc.id)op({action:'list_exports',id:doc.id}).then(items=>{if(!disposed)setExports(items);}).catch(e=>{if(!disposed)setMessage(e.message);});return()=>{disposed=true;};},[doc.id]);
+    const exportActive=exports.some(item=>item.compilation_id===doc.id&&['queued','rendering','importing'].includes(item.status));
+    useEffect(()=>{
+      if(!doc.id||!exportActive)return;
+      return pollActiveExports(()=>op({action:'list_exports',id:doc.id}),setExports,error=>setMessage(error.message));
+    },[doc.id,exportActive]);
     async function openRender(){const config=await op({action:'export_config'});setRenderConfig(config);setRenderDirectory(d=>config.libraries.includes(d)?d:config.libraries[0]||'');await refreshExports();setModal('render');}
     async function startRender(){
       if(doc.clips.some(c=>patterns.missingRanges(c)))throw Error('Choose ranges for missing zones before rendering.');
